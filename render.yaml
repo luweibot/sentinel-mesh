@@ -1,21 +1,25 @@
-# Sentinel Mesh — Render deployment blueprint.
+# Sentinel Mesh — Render deployment blueprint (no-card / free-tier edition).
 #
 # Deploys from the connected GitHub repository (see docs/SETUP.md):
 #   - sentinel-mesh-api          guarded API service          (Docker, /health)
 #   - sentinel-mesh-orchestrator orchestrator service         (Docker, /health)
-#   - sentinel-mesh-postgres     managed Postgres              (migrations run at api/orchestrator start)
-#   - sentinel-mesh-redis        managed Key Value (Redis)
 #
-# Security notes (docs/SECURITY-AUDIT.md):
-#   - No database/redis is exposed to the public internet: the services reach
-#     them over Render's private network via internal connection strings.
+# Data stores (Render-managed Postgres/Key Value require a payment card, so
+# they are NOT defined here — use the free tiers of Neon (Postgres) and
+# Upstash (Redis) instead; both are card-free):
+#   - DATABASE_URL  set in the Render dashboard (Neon connection string)
+#   - REDIS_URL     set in the Render dashboard (Upstash URL; OPTIONAL —
+#                   the services fall back to in-memory queues without it)
+#
+# Free-tier caveats (documented in docs/SECURITY-AUDIT.md):
+#   - Free web services sleep after ~15 min without traffic and lose
+#     in-process guard state (idempotency cache, spend-cap counters).
+#     Postgres remains the source of truth for processed events, but live
+#     trading later requires a paid "starter" instance (no sleeping).
 #   - EXECUTION_MODE stays "paper" — live trading is rejected by config.
 #   - ALLOWED_ORIGINS locks browser CORS to the Vercel dashboard origin.
-#     Put Cloudflare Access (or Render's built-in auth) in front of the two
-#     public URLs before opening them up; keep ports closed otherwise.
-#   - The guard services keep idempotency/spend-cap state in process memory:
-#     use instance plans that do NOT sleep (Starter). Free instances spin
-#     down after inactivity and lose that state.
+#     Put Cloudflare Access in front of the two public URLs before opening
+#     them up.
 
 services:
   # ---------------------------------------------------------------- API
@@ -23,7 +27,7 @@ services:
     name: sentinel-mesh-api
     runtime: docker
     dockerfilePath: ./docker/Dockerfile.api
-    plan: starter
+    plan: free
     healthCheckPath: /health
     autoDeploy: true
     envVars:
@@ -34,15 +38,12 @@ services:
       # Render expects the service to listen on $PORT (defaults to 10000).
       - key: API_PORT
         value: 10000
+      # Neon Postgres connection string — set manually in the dashboard.
       - key: DATABASE_URL
-        fromDatabase:
-          name: sentinel-mesh-postgres
-          property: connectionString
+        sync: false
+      # Upstash Redis URL — optional; in-memory queues are used without it.
       - key: REDIS_URL
-        fromService:
-          type: redis
-          name: sentinel-mesh-redis
-          property: connectionString
+        sync: false
       - key: CHAIN_ADAPTER_MODE
         value: mock
       - key: POLICY_MODE
@@ -61,7 +62,7 @@ services:
     name: sentinel-mesh-orchestrator
     runtime: docker
     dockerfilePath: ./docker/Dockerfile.orchestrator
-    plan: starter
+    plan: free
     healthCheckPath: /health
     autoDeploy: true
     envVars:
@@ -72,14 +73,9 @@ services:
       - key: ORCHESTRATOR_PORT
         value: 10000
       - key: DATABASE_URL
-        fromDatabase:
-          name: sentinel-mesh-postgres
-          property: connectionString
+        sync: false
       - key: REDIS_URL
-        fromService:
-          type: redis
-          name: sentinel-mesh-redis
-          property: connectionString
+        sync: false
       - key: CHAIN_ADAPTER_MODE
         value: mock
       - key: POLICY_MODE
@@ -90,17 +86,3 @@ services:
         value: "50000"
       - key: ALLOWED_ORIGINS
         value: https://sentinel-mesh.vercel.app
-
-  # -------------------------------------------------------------- REDIS
-  # Key Value instance; reachable only via Render's internal network.
-  - type: redis
-    name: sentinel-mesh-redis
-    # Free tier expires after 30 days; Starter does not sleep.
-    plan: starter
-
-databases:
-  - name: sentinel-mesh-postgres
-    databaseName: sentinel_mesh
-    # Starter (~$7/mo): the free tier DELETES the database after 30 days.
-    plan: starter
-    postgresMajorVersion: "16"
