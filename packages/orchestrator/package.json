@@ -1,0 +1,37 @@
+{
+  "name": "@sentinel-mesh/orchestrator",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Multi-agent orchestration engine: durable task storage, event outbox, idempotent consumers, retries, deadlines, cancellation, trace IDs, and per-agent budgets.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "lint": "eslint src tests"
+  },
+  "dependencies": {
+    "@sentinel-mesh/agent-sdk": "workspace:*",
+    "@sentinel-mesh/contracts": "workspace:*",
+    "@sentinel-mesh/database": "workspace:*",
+    "@sentinel-mesh/logger": "workspace:*",
+    "@sentinel-mesh/queue": "workspace:*",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/node": "^20.17.6",
+    "typescript": "^5.6.3",
+    "vitest": "^2.1.8"
+  }
+}

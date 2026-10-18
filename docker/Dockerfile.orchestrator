@@ -1,0 +1,15 @@
+# Sentinel Mesh orchestrator service image.
+# Single-stage image (phase 0, see docs/DECISIONS.md). Requires the repository
+# root as build context.
+# syntax=docker/dockerfile:1
+FROM node:20-alpine
+RUN corepack enable
+WORKDIR /repo
+COPY . .
+RUN pnpm install --frozen-lockfile
+RUN pnpm turbo run build --filter=@sentinel-mesh/orchestrator-service
+ENV NODE_ENV=production
+ENV ORCHESTRATOR_PORT=3002
+EXPOSE 3002
+# Apply pending migrations (same schema_migrations ledger as the API), then start.
+CMD ["sh", "-c", "node apps/orchestrator/dist/migrate.js && node apps/orchestrator/dist/server.js"]

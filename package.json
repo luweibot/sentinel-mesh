@@ -1,0 +1,31 @@
+{
+  "name": "sentinel-mesh",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Sentinel Mesh: collaborative multi-agent Web3 intelligence and guarded-trading platform (phase 0 skeleton).",
+  "packageManager": "pnpm@9.15.9",
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "scripts": {
+    "build": "turbo run build",
+    "typecheck": "turbo run typecheck",
+    "lint": "turbo run lint",
+    "test": "turbo run test",
+    "dev": "turbo run dev",
+    "db:migrate": "pnpm --filter @sentinel-mesh/api run db:migrate"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.15.0",
+    "eslint": "^9.15.0",
+    "turbo": "^2.3.3",
+    "typescript": "^5.6.3",
+    "typescript-eslint": "^8.15.0"
+  },
+  "type": "module",
+  "pnpm": {
+    "overrides": {
+      "postcss": "^8.5.6"
+    }
+  }
+}

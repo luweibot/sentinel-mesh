@@ -1,0 +1,34 @@
+{
+  "name": "@sentinel-mesh/database",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Postgres client factory and dependency-free SQL migration runner for Sentinel Mesh.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "migrations"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "lint": "eslint src tests"
+  },
+  "dependencies": {
+    "pg": "^8.13.1"
+  },
+  "devDependencies": {
+    "@types/node": "^20.17.6",
+    "@types/pg": "^8.11.10",
+    "typescript": "^5.6.3",
+    "vitest": "^2.1.8"
+  }
+}

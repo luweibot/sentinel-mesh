@@ -1,0 +1,34 @@
+{
+  "name": "@sentinel-mesh/skills",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Validated skill registry: sandboxed validation, review gates, version pinning, rollback, and untrusted-content handling.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "lint": "eslint src tests"
+  },
+  "dependencies": {
+    "@sentinel-mesh/contracts": "workspace:*",
+    "@sentinel-mesh/logger": "workspace:*",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/node": "^20.17.6",
+    "typescript": "^5.6.3",
+    "vitest": "^2.1.8"
+  }
+}

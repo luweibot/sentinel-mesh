@@ -1,0 +1,106 @@
+# Sentinel Mesh — Render deployment blueprint.
+#
+# Deploys from the connected GitHub repository (see docs/SETUP.md):
+#   - sentinel-mesh-api          guarded API service          (Docker, /health)
+#   - sentinel-mesh-orchestrator orchestrator service         (Docker, /health)
+#   - sentinel-mesh-postgres     managed Postgres              (migrations run at api/orchestrator start)
+#   - sentinel-mesh-redis        managed Key Value (Redis)
+#
+# Security notes (docs/SECURITY-AUDIT.md):
+#   - No database/redis is exposed to the public internet: the services reach
+#     them over Render's private network via internal connection strings.
+#   - EXECUTION_MODE stays "paper" — live trading is rejected by config.
+#   - ALLOWED_ORIGINS locks browser CORS to the Vercel dashboard origin.
+#     Put Cloudflare Access (or Render's built-in auth) in front of the two
+#     public URLs before opening them up; keep ports closed otherwise.
+#   - The guard services keep idempotency/spend-cap state in process memory:
+#     use instance plans that do NOT sleep (Starter). Free instances spin
+#     down after inactivity and lose that state.
+
+services:
+  # ---------------------------------------------------------------- API
+  - type: web
+    name: sentinel-mesh-api
+    runtime: docker
+    dockerfilePath: ./docker/Dockerfile.api
+    plan: starter
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: LOG_LEVEL
+        value: info
+      # Render expects the service to listen on $PORT (defaults to 10000).
+      - key: API_PORT
+        value: 10000
+      - key: DATABASE_URL
+        fromDatabase:
+          name: sentinel-mesh-postgres
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          type: redis
+          name: sentinel-mesh-redis
+          property: connectionString
+      - key: CHAIN_ADAPTER_MODE
+        value: mock
+      - key: POLICY_MODE
+        value: dry-run
+      - key: EXECUTION_MODE
+        value: paper
+      - key: POLICY_MAX_NOTIONAL_USD_CENTS
+        value: "50000"
+      # Browser CORS allowlist: the Vercel dashboard only. Set to "none"
+      # when Cloudflare Access fronts this service with a same-origin path.
+      - key: ALLOWED_ORIGINS
+        value: https://sentinel-mesh.vercel.app
+
+  # -------------------------------------------------------- ORCHESTRATOR
+  - type: web
+    name: sentinel-mesh-orchestrator
+    runtime: docker
+    dockerfilePath: ./docker/Dockerfile.orchestrator
+    plan: starter
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: LOG_LEVEL
+        value: info
+      - key: ORCHESTRATOR_PORT
+        value: 10000
+      - key: DATABASE_URL
+        fromDatabase:
+          name: sentinel-mesh-postgres
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          type: redis
+          name: sentinel-mesh-redis
+          property: connectionString
+      - key: CHAIN_ADAPTER_MODE
+        value: mock
+      - key: POLICY_MODE
+        value: dry-run
+      - key: EXECUTION_MODE
+        value: paper
+      - key: POLICY_MAX_NOTIONAL_USD_CENTS
+        value: "50000"
+      - key: ALLOWED_ORIGINS
+        value: https://sentinel-mesh.vercel.app
+
+  # -------------------------------------------------------------- REDIS
+  # Key Value instance; reachable only via Render's internal network.
+  - type: redis
+    name: sentinel-mesh-redis
+    # Free tier expires after 30 days; Starter does not sleep.
+    plan: starter
+
+databases:
+  - name: sentinel-mesh-postgres
+    databaseName: sentinel_mesh
+    # Starter (~$7/mo): the free tier DELETES the database after 30 days.
+    plan: starter
+    postgresMajorVersion: "16"

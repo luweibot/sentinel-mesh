@@ -1,0 +1,92 @@
+name: sentinel-mesh
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-sentinel}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-sentinel}
+      POSTGRES_DB: ${POSTGRES_DB:-sentinel_mesh}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-sentinel} -d ${POSTGRES_DB:-sentinel_mesh}"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+  api:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.api
+    environment:
+      NODE_ENV: production
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      API_PORT: 3001
+      DATABASE_URL: postgresql://${POSTGRES_USER:-sentinel}:${POSTGRES_PASSWORD:-sentinel}@postgres:5432/${POSTGRES_DB:-sentinel_mesh}
+      REDIS_URL: redis://redis:6379
+      CHAIN_ADAPTER_MODE: mock
+      POLICY_MODE: dry-run
+      EXECUTION_MODE: paper
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost:3000}
+      POLICY_MAX_NOTIONAL_USD_CENTS: ${POLICY_MAX_NOTIONAL_USD_CENTS:-50000}
+    ports:
+      - "${API_PORT:-3001}:3001"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  orchestrator:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.orchestrator
+    environment:
+      NODE_ENV: production
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      ORCHESTRATOR_PORT: 3002
+      DATABASE_URL: postgresql://${POSTGRES_USER:-sentinel}:${POSTGRES_PASSWORD:-sentinel}@postgres:5432/${POSTGRES_DB:-sentinel_mesh}
+      REDIS_URL: redis://redis:6379
+      CHAIN_ADAPTER_MODE: mock
+      POLICY_MODE: dry-run
+      EXECUTION_MODE: paper
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost:3000}
+      POLICY_MAX_NOTIONAL_USD_CENTS: ${POLICY_MAX_NOTIONAL_USD_CENTS:-50000}
+    ports:
+      - "${ORCHESTRATOR_PORT:-3002}:3002"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  web:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.web
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      NEXT_PUBLIC_API_BASE_URL: http://localhost:${API_PORT:-3001}
+      NEXT_PUBLIC_ORCHESTRATOR_BASE_URL: http://localhost:${ORCHESTRATOR_PORT:-3002}
+    ports:
+      - "${WEB_PORT:-3000}:3000"
+    depends_on:
+      - api
+      - orchestrator
+
+volumes:
+  pgdata:

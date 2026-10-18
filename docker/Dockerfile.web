@@ -1,0 +1,14 @@
+# Sentinel Mesh web (Next.js) service image.
+# NOTE: single-stage image chosen deliberately for the phase 0 skeleton
+# (see docs/DECISIONS.md). Requires the repository root as build context.
+# syntax=docker/dockerfile:1
+FROM node:20-alpine
+RUN corepack enable
+WORKDIR /repo
+COPY . .
+RUN pnpm install --frozen-lockfile
+RUN pnpm turbo run build --filter=@sentinel-mesh/web
+ENV NODE_ENV=production
+ENV PORT=3000
+EXPOSE 3000
+CMD ["pnpm", "--filter", "@sentinel-mesh/web", "start"]
