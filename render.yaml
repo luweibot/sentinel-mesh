@@ -55,7 +55,7 @@ services:
       # Browser CORS allowlist: the Vercel dashboard only. Set to "none"
       # when Cloudflare Access fronts this service with a same-origin path.
       - key: ALLOWED_ORIGINS
-        value: https://sentinel-mesh.vercel.app
+        value: https://sentinel-mesh-phi.vercel.app
 
   # -------------------------------------------------------- ORCHESTRATOR
   - type: web
@@ -85,4 +85,4 @@ services:
       - key: POLICY_MAX_NOTIONAL_USD_CENTS
         value: "50000"
       - key: ALLOWED_ORIGINS
-        value: https://sentinel-mesh.vercel.app
+        value: https://sentinel-mesh-phi.vercel.app
