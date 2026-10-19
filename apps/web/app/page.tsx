@@ -68,7 +68,7 @@ export default function OverviewPage(): React.JSX.Element {
           <DataSourceBadge source="service" />
         </div>
         <div className="stat">
-          <div className="label">Chains observed (fixtures)</div>
+          <div className="label">Chains observed</div>
           <div className="value">4</div>
           <span className="badge tone-warn">base · ethereum · solana×2</span>
         </div>

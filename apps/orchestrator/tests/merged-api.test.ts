@@ -32,7 +32,7 @@ function silentLogger() {
 }
 
 function baseDeps() {
-  const config = loadConfig({ EXECUTION_MODE: "paper" });
+  const config = loadConfig({ EXECUTION_MODE: "paper", DATA_SOURCE: "fixture" });
   const logger = silentLogger();
   const bus = new InMemoryEventBus();
   const engine = new OrchestrationEngine({

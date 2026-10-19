@@ -110,7 +110,7 @@ class FakeGuardStateJournal implements GuardStateJournal {
 
 /** Boot a stack; with a journal this mirrors a server start incl. restore. */
 /** Paper mode, matching the deployed EXECUTION_MODE=paper environment. */
-const config = () => loadConfig({ EXECUTION_MODE: "paper" });
+const config = () => loadConfig({ EXECUTION_MODE: "paper", DATA_SOURCE: "fixture" });
 
 async function boot(journal: GuardStateJournal): Promise<ExecutionStack> {
   const stack = buildExecutionStack(config(), silentLogger(), clock, { journal });

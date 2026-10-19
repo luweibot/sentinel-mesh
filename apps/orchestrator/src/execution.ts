@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import type { AppConfig } from "@sentinel-mesh/config";
 import type { Logger } from "@sentinel-mesh/logger";
-import { fixtureProviders } from "@sentinel-mesh/chain-data";
+import { buildProviders } from "@sentinel-mesh/chain-data";
 import { DeterministicPolicyEngine } from "@sentinel-mesh/policy-engine";
 import {
   AuthorizationService,
@@ -118,7 +118,7 @@ export function buildExecutionStack(
     clock,
     logger,
     minPoolTvlUsdCents: 100_000, // $1,000 liquidity floor
-    liquidity: fixtureProviders().liquidity,
+    liquidity: buildProviders(config.dataSource).liquidity,
     // Deterministic dev notional estimate: 1c per 10^6 base units.
     notionalUsdCentsFor: (intent: TradeIntent) => Math.ceil(Number(BigInt(intent.amountInRaw) / 10n ** 6n)),
     mode: { mode: config.executionMode === "paper" ? "paper" : "disabled" },

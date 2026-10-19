@@ -22,7 +22,7 @@ import { mockPayment, mockRequirement, mockSettlement } from "@sentinel-mesh/pay
 const NOW = new Date("2026-04-01T12:00:30.000Z");
 
 function deps() {
-  const config = loadConfig({});
+  const config = loadConfig({ DATA_SOURCE: "fixture" });
   const sink = new PassThrough();
   sink.resume();
   const logger = createLogger({ service: "test", level: "silent", destination: sink });
@@ -230,7 +230,7 @@ describe("x402 payment endpoints", () => {
 });
 
 describe("x402 route gating (service catalog)", () => {
-  const config = loadConfig({});
+  const config = loadConfig({ DATA_SOURCE: "fixture" });
   const logger = createLogger({ service: "test", level: "fatal" });
   const bus = new InMemoryEventBus();
   const engine = new OrchestrationEngine({ bus, logger, clock: { now: () => NOW } });
@@ -267,7 +267,7 @@ describe("x402 route gating (service catalog)", () => {
   });
 
   it("LIVE mode: a recorded-but-unsettled payment does NOT unlock content until settled on-chain", async () => {
-    const liveConfig = loadConfig({ PAYMENTS_MODE: "live", BASE_RPC_URL: "https://mainnet.base.org" });
+    const liveConfig = loadConfig({ PAYMENTS_MODE: "live", BASE_RPC_URL: "https://mainnet.base.org" , DATA_SOURCE: "fixture" });
     const livePayments = buildPaymentsStack(liveConfig, logger, { now: () => NOW });
     const publisher = await createEventPublisher({});
     const app = await buildApp({

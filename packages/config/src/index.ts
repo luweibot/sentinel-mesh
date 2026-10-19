@@ -47,8 +47,8 @@ export const AppConfig = z
     paymentsReceiverAddress: z.string().regex(EvmAddressPattern).default(
       "0x0bee61d45d42d7342d57ea7581d17581203447a8",
     ),
-    /** Market data source: fixture (deterministic placeholders) or live (free public APIs with fixture fallback). */
-    dataSource: z.enum(["fixture", "live"]).default("fixture"),
+    /** Market data source: live (free public APIs, fixture fallback labeled per call) or fixture (deterministic placeholders). Default live since 2026-10-19. */
+    dataSource: z.enum(["fixture", "live"]).default("live"),
     /**
      * x402 facilitation mode.
      * paper = mock facilitator (signatures trusted, settlement claimed).

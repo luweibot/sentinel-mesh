@@ -7,7 +7,7 @@ import { InMemoryEventBus } from "@sentinel-mesh/queue";
 import { DeterministicPolicyEngine } from "@sentinel-mesh/policy-engine";
 
 function testDeps() {
-  const config = loadConfig({});
+  const config = loadConfig({ DATA_SOURCE: "fixture" });
   const sink = new PassThrough();
   sink.resume(); // discard output
   const logger = createLogger({ service: "test", level: "silent", destination: sink });
@@ -42,7 +42,7 @@ describe("CORS", () => {
   });
 
   it("CORS can be disabled for zero-trust-proxy deployments (ALLOWED_ORIGINS=none)", async () => {
-    const config = loadConfig({ ALLOWED_ORIGINS: "none" });
+    const config = loadConfig({ ALLOWED_ORIGINS: "none" , DATA_SOURCE: "fixture" });
     const sink = new PassThrough();
     sink.resume();
     const logger = createLogger({ service: "test", level: "silent", destination: sink });
@@ -80,7 +80,7 @@ describe("health endpoints", () => {
   });
 
   it("GET /health/ready returns 503 when the database probe fails", async () => {
-    const config = { ...loadConfig({}), databaseUrl: "postgresql://user:pw@localhost:5432/db" };
+    const config = { ...loadConfig({ DATA_SOURCE: "fixture" }), databaseUrl: "postgresql://user:pw@localhost:5432/db" };
     const sink = new PassThrough();
     sink.resume();
     const app = buildApp({

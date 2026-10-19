@@ -14,7 +14,7 @@ import { registerResearchAgents } from "@sentinel-mesh/agents";
 import { buildApp } from "../src/app.js";
 
 function deps() {
-  const config = loadConfig({});
+  const config = loadConfig({ DATA_SOURCE: "fixture" });
   const sink = new PassThrough();
   sink.resume();
   const logger = createLogger({ service: "test", level: "silent", destination: sink });
@@ -35,7 +35,7 @@ function deps() {
 
 describe("CORS", () => {
   it("allows only configured origins", async () => {
-    const config = loadConfig({ ALLOWED_ORIGINS: "https://sentinel-mesh.vercel.app" });
+    const config = loadConfig({ ALLOWED_ORIGINS: "https://sentinel-mesh.vercel.app" , DATA_SOURCE: "fixture" });
     const sink = new PassThrough();
     sink.resume();
     const logger = createLogger({ service: "test", level: "silent", destination: sink });
