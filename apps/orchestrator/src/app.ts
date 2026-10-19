@@ -85,10 +85,14 @@ export function buildApp(deps: AppDeps): FastifyInstance {
       reply.code(404).send({ error: "NOT_FOUND" });
       return;
     }
-    logger.error({ err: error.message }, "unhandled_error");
+    logger.error({ err: error.message, stack: error.stack }, "unhandled_error");
+    // TEMP DIAGNOSTIC (remove after the merged-deploy task-issue 500 is
+    // root-caused): EXPOSE_INTERNAL_ERRORS=true surfaces error details.
+    const expose =
+      process.env.EXPOSE_INTERNAL_ERRORS === "true" || deps.config.nodeEnv !== "production";
     reply.code(error.statusCode ?? 500).send({
       error: "INTERNAL_ERROR",
-      message: deps.config.nodeEnv === "production" ? "internal error" : error.message,
+      message: expose ? `${error.message} [${(error as { code?: string }).code ?? "no-code"}]` : "internal error",
     });
   });
 
