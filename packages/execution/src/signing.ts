@@ -20,13 +20,16 @@ import { createHash } from "node:crypto";
 export interface IsolatedSignerPort {
   /** Identification only; carries no capability. */
   readonly signerId: string;
-  readonly mode: "mock";
+  readonly mode: "mock" | "live";
   /**
-   * Produce a mock signature over the canonical execution payload. In a
-   * production phase this method would talk to an isolated KMS/HSM signer;
-   * the port shape stays the same so agents remain unable to reach it.
+   * Produce a signature over the canonical execution payload. Mock mode is
+   * deterministic and cryptographically meaningless. Live mode signs with a
+   * real secp256k1 key held inside the signer module (see live-signing.ts);
+   * in a hardened phase this port would talk to an isolated KMS/HSM signer
+   * instead — the port shape stays the same so agents remain unable to
+   * reach the key.
    */
-  signExecution(canonical: string): Promise<{ signature: string; signerId: string; mode: "mock" }>;
+  signExecution(canonical: string): Promise<{ signature: string; signerId: string; mode: "mock" | "live" }>;
 }
 
 export class DeterministicMockSigner implements IsolatedSignerPort {
