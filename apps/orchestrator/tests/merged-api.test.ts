@@ -14,6 +14,7 @@ import {
 } from "@sentinel-mesh/orchestrator";
 import { registerAllAgents } from "@sentinel-mesh/agents";
 import { buildExecutionStack } from "../src/execution.js";
+import { buildSkillsStack, buildPaymentsStack } from "../src/skills-payments.js";
 import { buildApp } from "../src/app.js";
 
 /**
@@ -135,5 +136,35 @@ describe("merged deployment (API routes on the orchestrator)", () => {
     expect(agents.statusCode).toBe(404);
     const ready = await app.inject({ method: "GET", url: "/health/ready" });
     expect((ready.json() as { checks: Record<string, unknown> }).checks.queue).toBeUndefined();
+  });
+});
+
+describe("merged deployment with the payments stack (production parity)", () => {
+  it("boots with BOTH payments records and API routes: no duplicated routes", async () => {
+    const deps = baseDeps();
+    const publisher = await createEventPublisher({});
+    const policyEngine = new DeterministicPolicyEngine({
+      policyVersion: "0.1.0",
+      rules: { allowedChains: ["base", "solana"], maxNotionalUsdCents: 50000 },
+    });
+    const skills = buildSkillsStack(deps.config, deps.logger, { now: () => new Date() }).registry;
+    const payments = buildPaymentsStack(deps.config, deps.logger, { now: () => new Date() });
+    // buildApp throws FST_ERR_DUPLICATED_ROUTE at registration time if the
+    // explorer payments stub is not skipped — this is the boot crash that
+    // took down the first merged deploy on Render.
+    const app = buildApp({
+      config: deps.config,
+      logger: deps.logger,
+      engine: deps.engine,
+      storageMode: "in-memory",
+      skills,
+      payments,
+      api: { publisher, policyEngine, busMode: "in-memory" },
+    });
+    const res = await app.inject({ method: "GET", url: "/api/v1/payments" });
+    expect(res.statusCode).toBe(200);
+    const body = res.json() as { records?: unknown[] };
+    expect(Array.isArray(body.records)).toBe(true);
+    await app.close();
   });
 });

@@ -150,7 +150,7 @@ export function registerApiRoutes(app: FastifyInstance, deps: AppDeps): void {
       "Signals posted to POST /api/v1/signals, kept in an in-memory dev buffer (last 50). Each row is attributed to its source wallet and carries the policy decision. No signal executes anything in this phase.",
   }));
 
-  registerExplorerRoutes(app, logger, now);
+  registerExplorerRoutes(app, logger, now, deps.skipPaymentsStub ? { skipPaymentsStub: true } : {});
 
 }
 
