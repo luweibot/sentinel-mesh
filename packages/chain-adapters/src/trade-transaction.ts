@@ -2,6 +2,7 @@ import { z } from "zod";
 import { ChainId } from "@sentinel-mesh/contracts";
 import { createHash } from "node:crypto";
 import { sha256Hex } from "./mock-fixtures.js";
+import { withBuilderCodeSuffix, isBuilderCodeAttributed } from "./builder-code.js";
 
 /**
  * Chain-specific transaction VALIDATION for guarded execution.
@@ -167,7 +168,9 @@ export class MockSolanaTradeAdapter implements SolanaTradeAdapter {
 /** Build a deterministic, validation-passing EVM paper draft for an intent. */
 export function buildEvmPaperDraft(input: { chain: "base" | "ethereum"; amountInRaw: string; tokenIn: string; tokenOut: string; minAmountOutRaw: string }): EvmTransactionDraft {
   const chainId = input.chain === "base" ? 8453 : 1;
-  const data = `0x${sha256Hex(`${input.tokenIn}:${input.tokenOut}:${input.amountInRaw}:${input.minAmountOutRaw}`).slice(0, 128)}`;
+  const data = withBuilderCodeSuffix(
+    `0x${sha256Hex(`${input.tokenIn}:${input.tokenOut}:${input.amountInRaw}:${input.minAmountOutRaw}`).slice(0, 128)}`,
+  );
   return {
     kind: "evm",
     chainId,

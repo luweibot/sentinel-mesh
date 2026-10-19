@@ -1,3 +1,4 @@
+export * from "./builder-code.js";
 export * from "./types.js";
 export * from "./mock-fixtures.js";
 export * from "./mock-evm-adapter.js";
