@@ -13,8 +13,8 @@ export const TOKEN = {
   chainId: 8453,
   /** Contract address — verified on-chain at launch (block 52803550). */
   address: "0x8d9E380dD74897c6b51A53fde12B89F937c62BA3",
-  /** MESH/WETH pool — Uniswap V4, created at launch via Doppler. */
-  poolAddress: "" as string,
+  /** MESH/WETH pool — Uniswap V4 PoolManager on Base (verified: holds 85B MESH, 24KB code). */
+  poolAddress: "0x498581ff718922c3f8e6a244956af099b2652b2b",
   logoUrl:
     "https://media.base44.com/images/public/6a6e415774ed6f04724d8024/6e2175eb3_generated_image.png",
   website: "https://sentinel-mesh-phi.vercel.app",
