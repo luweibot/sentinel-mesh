@@ -123,12 +123,17 @@ export class GeckoTrendingDiscoveryProvider {
       const seen = new Set<string>();
       const limit = query.limit ?? 10;
       for (const pool of res.data ?? []) {
-        const address = pool.relationships?.base_token?.data?.id;
+        const rawId = pool.relationships?.base_token?.data?.id ?? "";
+        // GeckoTerminal prefixes token ids with the network slug, e.g. "base_0x...".
+        const address = rawId.includes("_") ? rawId.slice(rawId.indexOf("_") + 1) : rawId;
         const attrs = pool.attributes ?? {};
         if (!address || seen.has(address) || !/^(0x|so|So|EP|CA)/i.test(address)) continue;
         seen.add(address);
+        const baseSymbol = String(attrs.name ?? "").split(" / ")[0] || undefined;
         items.push({
-          token: chain.kind === "evm" ? evmToken(chain, address) : solanaToken(chain, address),
+          token: chain.kind === "evm"
+            ? evmToken(chain, address, { symbol: baseSymbol })
+            : solanaToken(chain, address, { symbol: baseSymbol }),
           poolAddress: pool.id,
           tvlUsd: Number(attrs.reserve_in_usd ?? 0) || 0,
           observedAt: this.now().toISOString(),

@@ -9,17 +9,19 @@ import type { Paginated } from "../src/providers.js";
  * Covers: mapping correctness, honest source labels, fixture fallback.
  */
 
+// Shape verified against the live GeckoTerminal API (2026-10-19): token ids are
+// network-prefixed ("base_0x...") and symbols come from the pool `name`.
 const GECKO_TRENDING = {
   data: [
     {
       id: "0xpool1_base_eth",
-      attributes: { base_token_symbol: "DOGE", reserve_in_usd: "123456.78" },
-      relationships: { base_token: { data: { id: "0x1111111111111111111111111111111111111111" } } },
+      attributes: { name: "DOGE / WETH", reserve_in_usd: "123456.78" },
+      relationships: { base_token: { data: { id: "base_0x1111111111111111111111111111111111111111" } } },
     },
     {
       id: "0xpool2_usdc_eth",
-      attributes: { base_token_symbol: "PEPE", reserve_in_usd: "999" },
-      relationships: { base_token: { data: { id: "0x2222222222222222222222222222222222222222" } } },
+      attributes: { name: "PEPE / USDC", reserve_in_usd: "999" },
+      relationships: { base_token: { data: { id: "base_0x2222222222222222222222222222222222222222" } } },
     },
   ],
   links: { next: "https://api.geckoterminal.com/api/v2/networks/base/trending_pools?page=2" },
@@ -71,6 +73,7 @@ describe("GeckoTrendingDiscoveryProvider", () => {
     expect(result.items).toHaveLength(2);
     expect(result.items[0]!.token.address).toBe("0x1111111111111111111111111111111111111111");
     expect(result.items[0]!.tvlUsd).toBeCloseTo(123456.78);
+    expect(result.items[0]!.token.symbol).toBe("DOGE");
     expect(result.nextCursor).toBe("1");
     expect(provider.lastSource).toBe("live");
   });
