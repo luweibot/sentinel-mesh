@@ -22,7 +22,6 @@ export const MOCK_RECIPIENTS: RecipientAllowlistEntry[] = [
   // OUR project wallet (EVM_PRIVATE_KEY holder, x402 receiver in prod and
   // default payTo in mockRequirement below).
   { address: "0x0bee61d45d42d7342d57ea7581d17581203447a8", label: "sentinel-mesh project wallet" },
-  { address: "0xa94c05c9949cafd958c858036c4830cd8bc1618a", label: "watched-trader-fixture (demo)" },
   { address: "0x9990000000000000000000000000000000000001", label: "data-provider-a (demo)" },
   { address: "0x9990000000000000000000000000000000000002", label: "data-provider-b (demo)" },
 ];

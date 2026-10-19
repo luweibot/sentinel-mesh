@@ -7,7 +7,7 @@ import {
   MockTradeSimulator,
 } from "../src/index.js";
 
-const EVM_WALLET = "0xa94c05c9949cafd958c858036c4830cd8bc1618a";
+const EVM_WALLET = "0x0bee61d45d42d7342d57ea7581d17581203447a8"; // our project wallet (deterministic mock input)
 const SOL_WALLET = "2fg5QD1eD7rzNNCsvnhmXFm5hqNgwTTG8p7kQ6f3rx6f";
 
 describe("mock EVM adapter", () => {
