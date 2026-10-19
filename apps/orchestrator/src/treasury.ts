@@ -1,12 +1,5 @@
-import { createPublicClient, createWalletClient, http, erc20Abi } from "viem";
-import { base } from "viem/chains";
-import { privateKeyToAccount } from "viem/accounts";
-import {
-  LiveAeroBroadcaster,
-  AERO_POOL_FACTORY_BASE,
-  BASE_WETH,
-} from "@sentinel-mesh/chain-adapters";
 import { GasTopUpService, type GasTopUpResult } from "@sentinel-mesh/treasury";
+import { createLiveAeroEthLeg } from "@sentinel-mesh/chain-adapters";
 import type { AppConfig } from "@sentinel-mesh/config";
 import type { Logger } from "@sentinel-mesh/logger";
 
@@ -44,39 +37,17 @@ export function buildTreasuryStack(config: AppConfig, logger: Logger): TreasuryS
     return DISABLED();
   }
 
-  const account = privateKeyToAccount(privateKey as `0x${string}`);
-  const transport = http(config.baseRpcUrl);
-  const publicClient = createPublicClient({ chain: base, transport });
-  const walletClient = createWalletClient({ account, chain: base, transport });
   const usdc = config.baseUsdcAddress as `0x${string}`;
-
-  const broadcaster = new LiveAeroBroadcaster({
-    publicClient,
-    walletClient,
+  // viem clients live inside chain-adapters: this package never
+  // instantiates viem types (avoids duplicate viem type identities).
+  const { port: ethLeg } = createLiveAeroEthLeg({
+    rpcUrl: config.baseRpcUrl,
+    privateKey: privateKey as `0x${string}`,
+    usdcAddress: usdc,
     recipient: config.paymentsReceiverAddress as `0x${string}`,
   });
   const service = new GasTopUpService({
-    ethLeg: {
-      swapUsdcToEth: ({ amountInRaw, slippageBps }) =>
-        broadcaster.swapExactTokensForETH({ tokenIn: usdc, amountInRaw, slippageBps }),
-      getEthBalanceWei: (address) => publicClient.getBalance({ address }),
-      getUsdcBalanceRaw: async (address) => {
-        // Load-balanced RPC nodes lag a few seconds behind receipts:
-        // bounded retry so a just-settled payment is not read as 0.
-        for (let attempt = 0; attempt < 3; attempt++) {
-          const balance = (await publicClient.readContract({
-            address: usdc, abi: erc20Abi, functionName: "balanceOf", args: [address],
-          })) as bigint;
-          if (balance > 0n) return balance;
-          await new Promise((r) => setTimeout(r, 5_000));
-        }
-        return 0n;
-      },
-      getUsdcPerEthRaw: () =>
-        broadcaster.quote(10n ** 18n, {
-          from: BASE_WETH, to: usdc, stable: false, factory: AERO_POOL_FACTORY_BASE,
-        }),
-    },
+    ethLeg,
     // SOL leg activates when a USDC-per-SOL oracle is wired (Jupiter
     // quote, endpoint to be verified); until then the planner skips it
     // (fail-closed, revenue accumulates until >= Mayan's ~5 USDC minimum
