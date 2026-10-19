@@ -40,7 +40,7 @@ interface PaymentsResponse {
 }
 
 /** x402 demo fixture values (must match the orchestrator's allowlists). */
-const DEMO_ASSET = "0x833589fcd6edb6e08f4c2c6ff80ffe7fd34502b0"; // USDC on Base (fixture)
+const DEMO_ASSET = "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913"; // USDC on Base (fixture)
 const DEMO_PAY_TO = "0x9990000000000000000000000000000000000001"; // fixture recipient
 const DEMO_FROM = "0x1110000000000000000000000000000000000001";
 const DEMO_AMOUNT = "1000000"; // 1,000,000 units = $1.00 at 6 decimals
