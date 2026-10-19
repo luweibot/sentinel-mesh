@@ -39,9 +39,13 @@ export const AppConfig = z
     databaseUrl: z.string().url().optional(),
     /** Optional in dev. Unset means the in-memory event bus. */
     redisUrl: z.string().url().optional(),
-    /** x402 receiver: the project's EVM wallet that payments must be made to. */
+    /**
+     * x402 receiver: OUR project EVM wallet (the EVM_PRIVATE_KEY holder).
+     * NOT the watched trader 0xa94c... — that wallet is a copy-trade SOURCE
+     * (WatchedWallet "Base Trader #1"), we must never route payments to it.
+     */
     paymentsReceiverAddress: z.string().regex(EvmAddressPattern).default(
-      "0xa94c05c9949cafd958c858036c4830cd8bc1618a",
+      "0x0bee61d45d42d7342d57ea7581d17581203447a8",
     ),
     /** Market data source: fixture (deterministic placeholders) or live (free public APIs with fixture fallback). */
     dataSource: z.enum(["fixture", "live"]).default("fixture"),

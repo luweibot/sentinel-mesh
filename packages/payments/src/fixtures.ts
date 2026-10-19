@@ -16,9 +16,13 @@ export const MOCK_ASSETS: AssetAllowlistEntry[] = [
 ];
 
 export const MOCK_RECIPIENTS: RecipientAllowlistEntry[] = [
-  // The project wallet: default payTo in mockRequirement() and the receiver
-  // wired into the orchestrator guard via AppConfig.paymentsReceiverAddress.
-  { address: "0xa94c05c9949cafd958c858036c4830cd8bc1618a", label: "sentinel-mesh project wallet" },
+  // Fixture recipient only (paper tests): this address is the WATCHED TRADER
+  // ("Base Trader #1" in WatchedWallet), not the project wallet. The real
+  // receiver is wired from AppConfig.paymentsReceiverAddress (our wallet).
+  // OUR project wallet (EVM_PRIVATE_KEY holder, x402 receiver in prod and
+  // default payTo in mockRequirement below).
+  { address: "0x0bee61d45d42d7342d57ea7581d17581203447a8", label: "sentinel-mesh project wallet" },
+  { address: "0xa94c05c9949cafd958c858036c4830cd8bc1618a", label: "watched-trader-fixture (demo)" },
   { address: "0x9990000000000000000000000000000000000001", label: "data-provider-a (demo)" },
   { address: "0x9990000000000000000000000000000000000002", label: "data-provider-b (demo)" },
 ];
@@ -29,9 +33,9 @@ export function mockRequirement(overrides: Record<string, unknown> = {}): Record
     network: 8453,
     asset: "0x833589fcd6edb6e08f4c2c6ff80ffe7fd34502b0",
     maxAmountRequired: "1000000",
-    // Default receiver: the sentinel-mesh project wallet (matches the
-    // guard recipient allowlist wired from AppConfig.paymentsReceiverAddress).
-    payTo: "0xa94c05c9949cafd958c858036c4830cd8bc1618a",
+    // Default receiver: OUR project wallet — matches the guard recipient
+    // allowlist wired from AppConfig.paymentsReceiverAddress.
+    payTo: "0x0bee61d45d42d7342d57ea7581d17581203447a8",
     maxTimeoutSeconds: 300,
     mimeType: "application/json",
     extra: { name: "sentinel-mesh-data", version: "1", description: "demo fixture" },
