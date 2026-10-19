@@ -17,7 +17,7 @@ export const TOKEN = {
   poolAddress: "" as string,
   logoUrl:
     "https://media.base44.com/images/public/6a6e415774ed6f04724d8024/6e2175eb3_generated_image.png",
-  website: "https://sentinel-mesh.vercel.app",
+  website: "https://luweibot.github.io/sentinel-mesh",
   launchpad: "Bankr (https://bankr.bot)",
   standard: "ERC-20, fixed supply, non-mintable",
   supply: "100,000,000,000 (100 billion, fixed)",

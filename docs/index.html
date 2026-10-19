@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sentinel Mesh — $MESH Token & Ecosystem</title>
+<meta name="description" content="Sentinel Mesh ($MESH): the multi-agent Web3 intelligence network on Base. Tokenomics, fee schedule, ecosystem roadmap, and developer docs.">
+<style>
+:root{--bg:#0b1220;--surface:#111a2e;--surface2:#16213a;--border:#22304f;--text:#e8edf7;--muted:#8fa0bd;--primary:#4cc9f0;--gold:#ffd166}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:16px/1.65 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+.wrap{max-width:960px;margin:0 auto;padding:0 1.25rem 4rem}
+a{color:var(--primary);text-decoration:none}a:hover{text-decoration:underline}
+code{font-family:ui-monospace,Menlo,monospace;font-size:.92em;background:var(--surface2);padding:.1em .35em;border-radius:4px}
+header.hero{padding:3rem 0 1.5rem;display:flex;flex-wrap:wrap;gap:1.5rem;align-items:center}
+header.hero img{width:110px;height:110px;border-radius:50%;flex:0 0 auto}
+h1{font-size:2rem;margin:0 0 .3rem}
+h2{font-size:1.25rem;margin:2.4rem 0 .8rem;border-bottom:1px solid var(--border);padding-bottom:.4rem}
+h3{font-size:1rem;margin:1.2rem 0 .4rem}
+p{margin:.6rem 0}
+.tagline{color:var(--muted);font-size:1.05rem;margin:0 0 .5rem}
+.badge{display:inline-block;font-size:.75rem;padding:.15rem .55rem;border:1px solid var(--border);border-radius:99px;color:var(--primary);margin-right:.35rem}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:1.1rem 1.3rem;margin:1rem 0}
+.grid{display:grid;gap:1rem;grid-template-columns:repeat(auto-fit,minmax(260px,1fr))}
+table{width:100%;border-collapse:collapse;font-size:.92rem}
+th,td{text-align:left;padding:.5rem .7rem;border-top:1px solid var(--border);vertical-align:top}
+thead th{border-top:none;color:var(--muted);font-weight:600;font-size:.78rem;text-transform:uppercase;letter-spacing:.03em}
+strong.num{color:var(--gold)}
+footer{margin-top:3rem;color:var(--muted);font-size:.85rem;border-top:1px solid var(--border);padding-top:1.2rem}
+.muted{color:var(--muted)}
+ul{margin:.5rem 0;padding-left:1.2rem}
+li{margin:.3rem 0}
+.btn{display:inline-block;background:var(--primary);color:#04121d;font-weight:600;padding:.55rem 1.1rem;border-radius:8px;margin:.3rem .5rem .3rem 0}
+.btn:hover{text-decoration:none;filter:brightness(1.1)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="hero">
+<img src="https://media.base44.com/images/public/6a6e415774ed6f04724d8024/6e2175eb3_generated_image.png" alt="$MESH token logo">
+<div>
+<h1>Sentinel Mesh <span style="color:var(--primary)">$MESH</span></h1>
+<p class="tagline">The multi-agent Web3 intelligence network on Base. Watches the chain, guards every trade, and sells its signals to agents and traders over x402 — pay per call, no signup.</p>
+<div>
+<span class="badge">Base · chain 8453</span><span class="badge">ERC-20 · fixed supply</span><span class="badge">Fair launch via Bankr</span><span class="badge">Builder Code bc_fakbdw5t</span>
+</div>
+</div>
+</header>
+
+<h2>What is Sentinel Mesh?</h2>
+<div class="card">
+<p>Sentinel Mesh is a network of autonomous agents that monitors trending tokens and smart-money wallets on Base and Solana around the clock, executes guarded copy trades with hard spend caps and a durable onchain-grade journal, and exposes its market intelligence as a paid API using the <strong>x402 HTTP payment protocol</strong>: an agent (or trader) fetches <code>/api/v1/…</code>, receives <code>402 Payment Required</code>, signs a USDC payment, and gets the data — machine commerce with no accounts and no keys to leak.</p>
+<p style="margin-top:1rem"><a class="btn" href="https://bankr.bot" rel="noopener">Launchpad: Bankr</a><a class="btn" href="https://x.com/orebot_network" rel="noopener">Follow on X</a></p>
+</div>
+
+<h2>$MESH token</h2>
+<div class="card">
+<table>
+<tr><th style="width:180px">Token</th><td>Sentinel Mesh (<strong>$MESH</strong>)</td></tr>
+<tr><th>Chain</th><td>Base (chain ID 8453)</td></tr>
+<tr><th>Standard</th><td>ERC-20 · fixed supply · non-mintable · no transfer tax · no admin keys over user funds</td></tr>
+<tr><th>Total supply</th><td>100,000,000,000 (100 billion, fixed forever)</td></tr>
+<tr><th>Launch</th><td>Fair launch on the Bankr launchpad (Doppler), Uniswap V4 MESH/WETH pool</td></tr>
+<tr><th>Contract</th><td id="ca"><em>Published at launch — verify against this page before trading</em></td></tr>
+<tr><th>Vesting</th><td>15% creator allocation, 1-year schedule with 30-day cliff; schedule is public onchain data</td></tr>
+</table>
+</div>
+
+<h3>Allocation</h3>
+<div class="card">
+<table>
+<thead><tr><th>Allocation</th><th>Share</th><th>Detail</th></tr></thead>
+<tr><td>Liquidity pool</td><td><strong class="num">85%</strong></td><td>Seeded into the Uniswap V4 pool at launch — immediately tradeable</td></tr>
+<tr><td>Project vesting</td><td><strong class="num">15%</strong></td><td>Vests over 1 year (30-day cliff) — funds development and security</td></tr>
+</table>
+</div>
+
+<h3>Fee schedule — where every trade's fees go</h3>
+<div class="card">
+<p>Every $MESH trade pays a total <strong class="num">1.75%</strong> swap fee. The project collects <strong class="num">0.95% of all volume</strong>. Fixed at launch, never changes.</p>
+<table>
+<thead><tr><th>Recipient</th><th>Share of volume</th><th>What it does</th></tr></thead>
+<tr><td>Creator (Sentinel Mesh)</td><td><strong class="num">0.665%</strong></td><td>95% of the 0.7% pool fee — claimable anytime, funds compute &amp; development</td></tr>
+<tr><td>LP fee</td><td><strong class="num">0.285%</strong></td><td>Auto-compounds as permanently locked liquidity in the MESH/WETH pool</td></tr>
+<tr><td>Bankr protocol</td><td>0.475%</td><td>Launchpad infrastructure</td></tr>
+<tr><td>BNKR buyback</td><td>0.2375%</td><td>Buybacks + protocol-owned BNKR liquidity</td></tr>
+<tr><td>Doppler protocol</td><td>~0.0875%</td><td>Launch infrastructure</td></tr>
+</table>
+<p class="muted" style="font-size:.9rem">The project collects fees in WETH only (quote-only fees), so the treasury grows with zero sell pressure on $MESH.</p>
+</div>
+
+<h3>Utility</h3>
+<div class="card">
+<ul>
+<li>Pay trading fees on the upcoming Sentinex terminal at a discount</li>
+<li>Accepted asset for x402 machine payments on the Sentinel Mesh API</li>
+<li>Instant cashback asset for Base trades (30% of fees back, BasedBot-style)</li>
+<li>Roadmap signal votes on which markets and features ship next</li>
+</ul>
+</div>
+
+<h2>Ecosystem &amp; roadmap</h2>
+<div class="grid">
+<div class="card"><h3 style="margin-top:0">🛰️ Sentinel Mesh API <span class="badge">Live</span></h3><p style="font-size:.92rem">Trending tokens, watched-wallet signals, guarded copy-trade execution. Paid per call via x402 in USDC.</p></div>
+<div class="card"><h3 style="margin-top:0">🪙 $MESH Token <span class="badge">Launching</span></h3><p style="font-size:.92rem">100B fixed supply on Base, fair-launched through Bankr. 0.95% of every trade funds the project.</p></div>
+<div class="card"><h3 style="margin-top:0">⚡ Sentinex Terminal <span class="badge">Q1 2027</span></h3><p style="font-size:.92rem">DeFAI agentic DEX + token trading terminal (Base + Solana): smart-money tracking, copy trading, sniping, limit orders, DCA, anti-MEV routing, PnL analytics — x402-native agent commerce.</p></div>
+<div class="card"><h3 style="margin-top:0">🤖 Agent Marketplace <span class="badge">2027</span></h3><p style="font-size:.92rem">Third-party agents selling skills and data on Sentinel Mesh rails — x402 payments + onchain agent identity (ERC-8004).</p></div>
+</div>
+
+<h2>Treasury transparency</h2>
+<div class="card">
+<p>All creator fees flow to the project treasury, spent in this order: infrastructure → security → development. Claims and spend are published on this page on a rolling basis.</p>
+<p class="muted" style="font-size:.9rem">Treasury reporting starts after launch.</p>
+</div>
+
+<h2>Verify before you trade</h2>
+<div class="card">
+<ul>
+<li>Check the contract address against this page or the official X account <a href="https://x.com/orebot_network" rel="noopener">@orebot_network</a> before buying</li>
+<li>The project never DMs first, never asks for seed phrases, and never runs "support" wallets</li>
+<li>$MESH is a network utility token, not an investment contract. Nothing here is financial advice.</li>
+</ul>
+</div>
+
+<footer>
+Sentinel Mesh · Base · Builder Code <code>bc_fakbdw5t</code> · <a href="https://github.com/luweibot/sentinel-mesh" rel="noopener">GitHub</a> · <a href="https://bankr.bot" rel="noopener">Bankr</a> · X <a href="https://x.com/orebot_network" rel="noopener">@orebot_network</a>
+</footer>
+
+</div>
+</body>
+</html>
