@@ -93,6 +93,9 @@ importers:
       '@sentinel-mesh/agents':
         specifier: workspace:*
         version: link:../../packages/agents
+      '@sentinel-mesh/api':
+        specifier: workspace:*
+        version: link:../api
       '@sentinel-mesh/chain-data':
         specifier: workspace:*
         version: link:../../packages/chain-data

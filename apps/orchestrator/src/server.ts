@@ -1,7 +1,8 @@
 import "dotenv/config";
 import { loadConfig } from "@sentinel-mesh/config";
 import { createLogger } from "@sentinel-mesh/logger";
-import { InMemoryEventBus } from "@sentinel-mesh/queue";
+import { InMemoryEventBus, createEventPublisher } from "@sentinel-mesh/queue";
+import { DeterministicPolicyEngine } from "@sentinel-mesh/policy-engine";
 import {
   OrchestrationEngine,
   InMemoryTaskStore,
@@ -59,6 +60,18 @@ async function main(): Promise<void> {
   const guardJournal = pool ? new PgGuardStateJournal(pool) : undefined;
   const spendCapJournal = pool ? new PgSpendCapJournal(pool, (error) => logger.error({ err: String(error) }, "spend_cap_journal_write_failed")) : undefined;
 
+  // Shared API routes (merged deployment): the retired API service's
+  // signal pipeline needs the same publisher/policy wiring it had.
+  const publisher = await createEventPublisher({ redisUrl: config.redisUrl });
+  const busMode = config.redisUrl ? "bullmq" : "in-memory";
+  const policyEngine = new DeterministicPolicyEngine({
+    policyVersion: "0.1.0",
+    rules: {
+      allowedChains: ["base", "solana"],
+      maxNotionalUsdCents: config.policyMaxNotionalUsdCents,
+    },
+  });
+
   const execution = buildExecutionStack(config, logger, clock, { journal: guardJournal });
   registerAllAgents(engine, execution.port);
   const skills = buildSkillsStack(config, logger, clock).registry;
@@ -78,6 +91,7 @@ async function main(): Promise<void> {
     execution,
     skills,
     payments,
+    api: { publisher, policyEngine, busMode },
     storageMode,
     dbProbe: pool
       ? async () => {

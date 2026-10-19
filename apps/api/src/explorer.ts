@@ -64,7 +64,21 @@ const FIXTURE_WALLETS: Record<string, string> = {
   solana: "9WzDXwBbmkg8ZTbNMqDmHADSafsSx4zJqF8EKkejiCFr",
 };
 
-export function registerExplorerRoutes(app: FastifyInstance, logger: Logger, now: () => Date): void {
+export interface ExplorerOptions {
+  /**
+   * Skip registering the honest no-data GET /api/v1/payments stub. The
+   * merged orchestrator service serves the real x402 payment records on
+   * that path, so it must not register the stub.
+   */
+  skipPaymentsStub?: boolean;
+}
+
+export function registerExplorerRoutes(
+  app: FastifyInstance,
+  logger: Logger,
+  now: () => Date,
+  options: ExplorerOptions = {},
+): void {
   const providers = fixtureProviders();
 
   /** GET /api/v1/tokens?chain= — discovered fixture tokens. */
@@ -191,14 +205,16 @@ export function registerExplorerRoutes(app: FastifyInstance, logger: Logger, now
     return { dataSource: "fixture", chain: chain.id, analysis };
   });
 
-  /** GET /api/v1/payments — honest no-data page: no payments exist in this phase. */
-  app.get("/api/v1/payments", async () => ({
-    dataSource: "none",
-    status: "no-data",
-    items: [],
-    detail:
-      "No payments exist in Sentinel Mesh in this phase. No billing, subscriptions, or payment rails are implemented; this endpoint exists so the dashboard renders an honest empty state instead of fabricated numbers.",
-  }));
+  if (!options.skipPaymentsStub) {
+    /** GET /api/v1/payments — honest no-data page: no payments exist in this phase. */
+    app.get("/api/v1/payments", async () => ({
+      dataSource: "none",
+      status: "no-data",
+      items: [],
+      detail:
+        "No payments exist in Sentinel Mesh in this phase. No billing, subscriptions, or payment rails are implemented; this endpoint exists so the dashboard renders an honest empty state instead of fabricated numbers.",
+    }));
+  }
 
   /** GET /api/v1/portfolio — honest no-data page: no fills are attributed yet. */
   app.get("/api/v1/portfolio", async () => ({

@@ -1,8 +1,9 @@
 # Sentinel Mesh — Render deployment blueprint (no-card / free-tier edition).
 #
 # Deploys from the connected GitHub repository (see docs/SETUP.md):
-#   - sentinel-mesh-api          guarded API service          (Docker, /health)
-#   - sentinel-mesh-orchestrator orchestrator service         (Docker, /health)
+#   - sentinel-mesh-orchestrator merged backend service        (Docker, /health)
+#     (also serves the retired sentinel-mesh-api surface: agents,
+#      signals, tokens/evidence/risk/whales/fees, portfolio)
 #
 # Data stores (Render-managed Postgres/Key Value require a payment card, so
 # they are NOT defined here — use the free tiers of Neon (Postgres) and
@@ -22,41 +23,6 @@
 #     them up.
 
 services:
-  # ---------------------------------------------------------------- API
-  - type: web
-    name: sentinel-mesh-api
-    runtime: docker
-    dockerfilePath: ./docker/Dockerfile.api
-    plan: free
-    healthCheckPath: /health
-    autoDeploy: true
-    envVars:
-      - key: NODE_ENV
-        value: production
-      - key: LOG_LEVEL
-        value: info
-      # Render expects the service to listen on $PORT (defaults to 10000).
-      - key: API_PORT
-        value: 10000
-      # Neon Postgres connection string — set manually in the dashboard.
-      - key: DATABASE_URL
-        sync: false
-      # Upstash Redis URL — optional; in-memory queues are used without it.
-      - key: REDIS_URL
-        sync: false
-      - key: CHAIN_ADAPTER_MODE
-        value: mock
-      - key: POLICY_MODE
-        value: dry-run
-      - key: EXECUTION_MODE
-        value: paper
-      - key: POLICY_MAX_NOTIONAL_USD_CENTS
-        value: "50000"
-      # Browser CORS allowlist: the Vercel dashboard only. Set to "none"
-      # when Cloudflare Access fronts this service with a same-origin path.
-      - key: ALLOWED_ORIGINS
-        value: https://sentinel-mesh-phi.vercel.app
-
   # -------------------------------------------------------- ORCHESTRATOR
   - type: web
     name: sentinel-mesh-orchestrator

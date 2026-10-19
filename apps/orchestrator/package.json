@@ -1,20 +1,4 @@
 {
-  "name": "@sentinel-mesh/orchestrator-service",
-  "version": "0.1.0",
-  "private": true,
-  "description": "Sentinel Mesh orchestration service: task issuing, research workflows, traces, budgets, retries, deadlines, and cancellation over the orchestration engine.",
-  "type": "module",
-  "main": "./dist/server.js",
-  "scripts": {
-    "dev": "tsx watch src/server.ts",
-    "build": "tsc -p tsconfig.build.json",
-    "start": "node dist/server.js",
-    "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "vitest run",
-    "lint": "eslint src tests",
-    "db:migrate": "tsx src/migrate.ts",
-    "generate:trace": "tsx scripts/generate-trace.ts"
-  },
   "dependencies": {
     "@fastify/cors": "^10",
     "@sentinel-mesh/agents": "workspace:*",
@@ -31,12 +15,29 @@
     "@sentinel-mesh/skills": "workspace:*",
     "dotenv": "^16.4.5",
     "fastify": "^5.12.2",
-    "zod": "^3.23.8"
+    "zod": "^3.23.8",
+    "@sentinel-mesh/api": "workspace:*"
   },
+  "description": "Sentinel Mesh orchestration service: task issuing, research workflows, traces, budgets, retries, deadlines, and cancellation over the orchestration engine.",
   "devDependencies": {
     "@types/node": "^20.17.6",
     "tsx": "^4.19.2",
     "typescript": "^5.6.3",
     "vitest": "^2.1.8"
-  }
+  },
+  "main": "./dist/server.js",
+  "name": "@sentinel-mesh/orchestrator-service",
+  "private": true,
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "build": "tsc -p tsconfig.build.json",
+    "start": "node dist/server.js",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "lint": "eslint src tests",
+    "db:migrate": "tsx src/migrate.ts",
+    "generate:trace": "tsx scripts/generate-trace.ts"
+  },
+  "type": "module",
+  "version": "0.1.0"
 }

@@ -10,6 +10,9 @@ import { TradeIntent, type ExecutionReceipt } from "@sentinel-mesh/contracts";
 import type { ExecutionStack } from "./execution.js";
 import type { PaymentsStack } from "./skills-payments.js";
 import { SkillIntakeRejectedError, SkillRegistryError, type SkillRegistry } from "@sentinel-mesh/skills";
+import { registerApiRoutes } from "@sentinel-mesh/api";
+import type { EventPublisher } from "@sentinel-mesh/queue";
+import type { PolicyEngine } from "@sentinel-mesh/policy-engine";
 
 /**
  * Orchestrator service HTTP surface.
@@ -42,6 +45,17 @@ export interface AppDeps {
   skills?: SkillRegistry;
   /** x402 payment guard; when absent, payment endpoints 503. */
   payments?: PaymentsStack;
+  /**
+   * Shared API routes (agent registry, signal pipeline, explorer). When
+   * present, this single service also serves the retired API service's
+   * surface — one process, one public URL, one set of instance hours.
+   */
+  api?: {
+    publisher: EventPublisher;
+    policyEngine: PolicyEngine;
+    /** "in-memory" | "bullmq" — reported by /health/ready. */
+    busMode: string;
+  };
 }
 
 export function buildApp(deps: AppDeps): FastifyInstance {
@@ -99,6 +113,9 @@ export function buildApp(deps: AppDeps): FastifyInstance {
       storage: { mode: deps.storageMode },
       policy: { mode: deps.config.policyMode, executionMode: deps.config.executionMode },
     };
+    if (deps.api) {
+      checks.queue = { mode: deps.api.busMode };
+    }
     if (deps.config.databaseUrl && deps.dbProbe) {
       try {
         await deps.dbProbe();
@@ -417,6 +434,21 @@ export function buildApp(deps: AppDeps): FastifyInstance {
   // -------------------------------------------------------------------------
   // x402 payments (mock facilitator; content access only, never trading)
   // -------------------------------------------------------------------------
+
+    // -------------------------------------------------------------------
+    // Shared API routes (merged deployment)
+    // -------------------------------------------------------------------
+    if (deps.api) {
+      registerApiRoutes(app, {
+        config: deps.config,
+        publisher: deps.api.publisher,
+        policyEngine: deps.api.policyEngine,
+        busMode: deps.api.busMode,
+        logger,
+        skipPaymentsStub: true,
+      });
+    }
+
 
   const payments = deps.payments;
   if (payments) {

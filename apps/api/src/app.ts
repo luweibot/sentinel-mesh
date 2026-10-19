@@ -39,98 +39,31 @@ export interface AppDeps {
   /** Injectable clock/uuid for tests. */
   now?: () => Date;
   uuid?: () => string;
+  /** Skip the GET /api/v1/payments stub (merged orchestrator serves real records). */
+  skipPaymentsStub?: boolean;
 }
 
-export function buildApp(deps: AppDeps): FastifyInstance {
+/**
+ * Shared route registration for the merged deployment.
+ *
+ * Registers the agent registry, the guarded signal pipeline, and the
+ * explorer routes on an EXISTING Fastify instance (no CORS/error handlers
+ * of its own — the host app owns those). The merged orchestrator service
+ * calls this to serve the full API surface from one process.
+ *
+ * Not included here: health endpoints and the standalone POST /api/v1/tasks
+ * event-publish variant — the merged orchestrator has engine-backed
+ * equivalents.
+ */
+export function registerApiRoutes(app: FastifyInstance, deps: AppDeps): void {
   const logger =
-    deps.logger ??
-    createLogger({ service: "api", level: deps.config.logLevel });
+    deps.logger ?? createLogger({ service: "api", level: deps.config.logLevel });
   const now = deps.now ?? (() => new Date());
   const uuid = deps.uuid ?? (() => randomUUID());
-
-  const app = Fastify({ logger: false });
-
-  // CORS: browsers (web dashboard) are only allowed from configured
-  // origins; server-to-server and zero-trust-proxy callers are unaffected.
-  if (deps.config.allowedOrigins.length > 0) {
-    app.register(cors, { origin: deps.config.allowedOrigins, credentials: false });
-  }
 
   /** Recent signals with their policy decisions (in-memory, dev-scale). */
   const signalBuffer: Array<{ signal: unknown; decision: PolicyDecision; recordedAt: string }> = [];
 
-  app.addHook("onRequest", async (request) => {
-    logger.debug(
-      { method: request.method, url: request.url, requestId: request.id },
-      "http_request",
-    );
-  });
-
-  app.setErrorHandler((error: FastifyError, _request, reply) => {
-    if (error instanceof ZodError) {
-      reply.code(400).send({ error: "VALIDATION_FAILED", issues: error.issues });
-      return;
-    }
-    logger.error(
-      { err: error.message, statusCode: error.statusCode ?? 500 },
-      "unhandled_error",
-    );
-    reply.code(error.statusCode ?? 500).send({
-      error: "INTERNAL_ERROR",
-      message: deps.config.nodeEnv === "production" ? "internal error" : error.message,
-    });
-  });
-
-  app.setNotFoundHandler((_request, reply) => {
-    reply.code(404).send({ error: "NOT_FOUND" });
-  });
-
-  // -------------------------------------------------------------------------
-  // Health endpoints
-  // -------------------------------------------------------------------------
-
-  app.get("/health", async () => ({
-    status: "ok",
-    service: "sentinel-mesh-api",
-    version: API_VERSION,
-    uptimeSec: Math.round(process.uptime()),
-    time: now().toISOString(),
-  }));
-
-  app.get("/health/ready", async (_request, reply) => {
-    const checks: Record<string, unknown> = {
-      events: { mode: deps.busMode },
-      policy: { mode: deps.config.policyMode, executionMode: deps.config.executionMode },
-    };
-
-    if (deps.config.databaseUrl && deps.dbProbe) {
-      try {
-        await deps.dbProbe();
-        checks.database = { configured: true, status: "ok" };
-      } catch (error) {
-        checks.database = { configured: true, status: "unreachable" };
-        return reply.code(503).send({
-          status: "degraded",
-          checks,
-          detail: error instanceof Error ? error.message : "database unreachable",
-        });
-      }
-    } else {
-      checks.database = {
-        configured: Boolean(deps.config.databaseUrl),
-        status: "skipped",
-      };
-    }
-
-    return {
-      status: "ok",
-      service: "sentinel-mesh-api",
-      version: API_VERSION,
-      checks,
-    };
-  });
-
-  // -------------------------------------------------------------------------
   // Agent registry
   // -------------------------------------------------------------------------
 
@@ -138,55 +71,6 @@ export function buildApp(deps: AppDeps): FastifyInstance {
     agents: MOCK_AGENT_MANIFESTS,
     total: MOCK_AGENT_MANIFESTS.length,
   }));
-
-  // -------------------------------------------------------------------------
-  // Task issuing: POST /api/v1/tasks
-  // -------------------------------------------------------------------------
-
-  const CreateTaskBody = z
-    .object({
-      agentId: z.string().min(1),
-      taskType: z.enum(["scan-trending", "monitor-wallet", "evaluate-signal", "simulate-trade"]),
-      input: z.unknown().optional(),
-      priority: z.enum(["low", "normal", "high"]).optional(),
-    })
-    .strict();
-
-  app.post("/api/v1/tasks", async (request, reply) => {
-    const body = CreateTaskBody.parse(request.body ?? {});
-
-    const manifest = findManifest(body.agentId);
-    if (!manifest) {
-      return reply.code(404).send({
-        error: "AGENT_NOT_FOUND",
-        message: `no manifest registered for agentId '${body.agentId}'`,
-      });
-    }
-    if (!manifest.supportedTaskTypes.includes(body.taskType)) {
-      return reply.code(400).send({
-        error: "TASK_TYPE_NOT_SUPPORTED",
-        message: `agent '${manifest.agentId}' does not support task type '${body.taskType}'`,
-      });
-    }
-
-    const task = AgentTask.parse({
-      schemaVersion: 1,
-      taskId: uuid(),
-      assignedAgentId: manifest.agentId,
-      taskType: body.taskType,
-      input: body.input ?? null,
-      issuedAt: now().toISOString(),
-      priority: body.priority ?? "normal",
-    });
-
-    const envelope = createEnvelope(EventCatalog["agent.task.issued"], task, {
-      actor: { kind: "system", id: "sentinel-mesh-api" },
-    });
-    await deps.publisher.publish(envelope);
-
-    logger.info({ taskId: task.taskId, agentId: manifest.agentId }, "task_issued");
-    return reply.code(202).send({ task });
-  });
 
   // -------------------------------------------------------------------------
   // Guarded signal pipeline: POST /api/v1/signals
@@ -267,6 +151,150 @@ export function buildApp(deps: AppDeps): FastifyInstance {
   }));
 
   registerExplorerRoutes(app, logger, now);
+
+}
+
+export function buildApp(deps: AppDeps): FastifyInstance {
+  const logger =
+    deps.logger ??
+    createLogger({ service: "api", level: deps.config.logLevel });
+  const now = deps.now ?? (() => new Date());
+  const uuid = deps.uuid ?? (() => randomUUID());
+
+  const app = Fastify({ logger: false });
+
+  // CORS: browsers (web dashboard) are only allowed from configured
+  // origins; server-to-server and zero-trust-proxy callers are unaffected.
+  if (deps.config.allowedOrigins.length > 0) {
+    app.register(cors, { origin: deps.config.allowedOrigins, credentials: false });
+  }
+
+
+  app.addHook("onRequest", async (request) => {
+    logger.debug(
+      { method: request.method, url: request.url, requestId: request.id },
+      "http_request",
+    );
+  });
+
+  app.setErrorHandler((error: FastifyError, _request, reply) => {
+    if (error instanceof ZodError) {
+      reply.code(400).send({ error: "VALIDATION_FAILED", issues: error.issues });
+      return;
+    }
+    logger.error(
+      { err: error.message, statusCode: error.statusCode ?? 500 },
+      "unhandled_error",
+    );
+    reply.code(error.statusCode ?? 500).send({
+      error: "INTERNAL_ERROR",
+      message: deps.config.nodeEnv === "production" ? "internal error" : error.message,
+    });
+  });
+
+  app.setNotFoundHandler((_request, reply) => {
+    reply.code(404).send({ error: "NOT_FOUND" });
+  });
+
+  // -------------------------------------------------------------------------
+  // Health endpoints
+  // -------------------------------------------------------------------------
+
+  app.get("/health", async () => ({
+    status: "ok",
+    service: "sentinel-mesh-api",
+    version: API_VERSION,
+    uptimeSec: Math.round(process.uptime()),
+    time: now().toISOString(),
+  }));
+
+  app.get("/health/ready", async (_request, reply) => {
+    const checks: Record<string, unknown> = {
+      events: { mode: deps.busMode },
+      policy: { mode: deps.config.policyMode, executionMode: deps.config.executionMode },
+    };
+
+    if (deps.config.databaseUrl && deps.dbProbe) {
+      try {
+        await deps.dbProbe();
+        checks.database = { configured: true, status: "ok" };
+      } catch (error) {
+        checks.database = { configured: true, status: "unreachable" };
+        return reply.code(503).send({
+          status: "degraded",
+          checks,
+          detail: error instanceof Error ? error.message : "database unreachable",
+        });
+      }
+    } else {
+      checks.database = {
+        configured: Boolean(deps.config.databaseUrl),
+        status: "skipped",
+      };
+    }
+
+    return {
+      status: "ok",
+      service: "sentinel-mesh-api",
+      version: API_VERSION,
+      checks,
+    };
+  });
+
+  // -------------------------------------------------------------------------  // -------------------------------------------------------------------------
+  // Task issuing: POST /api/v1/tasks (standalone API only; the merged
+  // orchestrator serves the engine-backed equivalent)
+  // -------------------------------------------------------------------------
+
+  const CreateTaskBody = z
+    .object({
+      agentId: z.string().min(1),
+      taskType: z.enum(["scan-trending", "monitor-wallet", "evaluate-signal", "simulate-trade"]),
+      input: z.unknown().optional(),
+      priority: z.enum(["low", "normal", "high"]).optional(),
+    })
+    .strict();
+
+  app.post("/api/v1/tasks", async (request, reply) => {
+    const body = CreateTaskBody.parse(request.body ?? {});
+
+    const manifest = findManifest(body.agentId);
+    if (!manifest) {
+      return reply.code(404).send({
+        error: "AGENT_NOT_FOUND",
+        message: `no manifest registered for agentId '${body.agentId}'`,
+      });
+    }
+    if (!manifest.supportedTaskTypes.includes(body.taskType)) {
+      return reply.code(400).send({
+        error: "TASK_TYPE_NOT_SUPPORTED",
+        message: `agent '${manifest.agentId}' does not support task type '${body.taskType}'`,
+      });
+    }
+
+    const task = AgentTask.parse({
+      schemaVersion: 1,
+      taskId: uuid(),
+      assignedAgentId: manifest.agentId,
+      taskType: body.taskType,
+      input: body.input ?? null,
+      issuedAt: now().toISOString(),
+      priority: body.priority ?? "normal",
+    });
+
+    const envelope = createEnvelope(EventCatalog["agent.task.issued"], task, {
+      actor: { kind: "system", id: "sentinel-mesh-api" },
+    });
+    await deps.publisher.publish(envelope);
+
+    logger.info({ taskId: task.taskId, agentId: manifest.agentId }, "task_issued");
+    return reply.code(202).send({ task });
+  });
+
+  // -------------------------------------------------------------------------
+  // Shared API routes (agent registry, signal pipeline, explorer)
+  // -------------------------------------------------------------------------
+  registerApiRoutes(app, deps);
 
   return app;
 }

@@ -3,12 +3,17 @@
 import { useEffect, useState } from "react";
 
 /**
- * Shared fetch helpers. All dashboard data comes from the API or
- * orchestrator services; base URLs are public read-only endpoints only.
+ * Shared fetch helpers. All dashboard data comes from the merged backend
+ * service (orchestrator), which also serves the retired API's routes;
+ * base URLs are public read-only endpoints only.
  */
 
-export const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:3001";
-export const ORCHESTRATOR_BASE = process.env.NEXT_PUBLIC_ORCHESTRATOR_BASE_URL ?? "http://localhost:3002";
+export const ORCHESTRATOR_BASE =
+  process.env.NEXT_PUBLIC_ORCHESTRATOR_BASE_URL ??
+  (process.env.NODE_ENV === "production" ? "https://sentinel-mesh-orchestrator.onrender.com" : "http://localhost:3002");
+
+/** Legacy alias: the API surface is served by the same merged backend. */
+export const API_BASE = ORCHESTRATOR_BASE;
 
 export class ApiError extends Error {
   constructor(readonly status: number, readonly body: string) {
