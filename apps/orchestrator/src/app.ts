@@ -11,6 +11,7 @@ import type { ExecutionStack } from "./execution.js";
 import type { PaymentsStack } from "./skills-payments.js";
 import { SkillIntakeRejectedError, SkillRegistryError, type SkillRegistry } from "@sentinel-mesh/skills";
 import { registerApiRoutes } from "@sentinel-mesh/api";
+import { buildProviders } from "@sentinel-mesh/chain-data";
 import { FREE_ROUTES, SERVICE_CATALOG, findServiceByRoute, requirementForService } from "@sentinel-mesh/payments";
 import { SUPPORTED_X402_VERSION, X402_VERSION_HEADER } from "@sentinel-mesh/contracts";
 import type { EventPublisher } from "@sentinel-mesh/queue";
@@ -452,6 +453,7 @@ export function buildApp(deps: AppDeps): FastifyInstance {
         busMode: deps.api.busMode,
         logger,
         skipPaymentsStub: true,
+        providers: buildProviders(deps.config.dataSource),
       });
     }
 

@@ -292,7 +292,9 @@ class FakeSpendCapJournal implements SpendCapStateJournal {
   async restore() {
     await this.queue;
     return [...this.rows.entries()].map(([key, row]) => {
-      const [agentId, day] = key.split("|");
+      const parts = key.split("|");
+      const agentId = parts[0] ?? "";
+      const day = parts[1] ?? "";
       return { agentId, day, committedUsdCents: row.committedUsdCents, reservedUsdCents: row.reservedUsdCents };
     });
   }

@@ -43,6 +43,8 @@ export const AppConfig = z
     paymentsReceiverAddress: z.string().regex(EvmAddressPattern).default(
       "0xa94c05c9949cafd958c858036c4830cd8bc1618a",
     ),
+    /** Market data source: fixture (deterministic placeholders) or live (free public APIs with fixture fallback). */
+    dataSource: z.enum(["fixture", "live"]).default("fixture"),
     /** x402 facilitation mode: paper = mock facilitator (no on-chain settlement). */
     paymentsMode: z.enum(["paper", "live"]).default("paper").refine((mode) => mode === "paper", {
       message: "paymentsMode=live requires an on-chain facilitator ADR and security sign-off; only paper is enabled",
@@ -108,6 +110,7 @@ function pick(env: NodeJS.ProcessEnv) {
     redisUrl: env.REDIS_URL === "" ? undefined : env.REDIS_URL,
     paymentsReceiverAddress: env.PAYMENTS_RECEIVER_ADDRESS,
     paymentsMode: env.PAYMENTS_MODE,
+    dataSource: env.DATA_SOURCE,
     chainAdapterMode: env.CHAIN_ADAPTER_MODE,
     policyMode: env.POLICY_MODE,
     executionMode: env.EXECUTION_MODE,

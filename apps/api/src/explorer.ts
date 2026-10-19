@@ -2,6 +2,7 @@ import { z } from "zod";
 import type { FastifyInstance } from "fastify";
 import type { Logger } from "@sentinel-mesh/logger";
 import {
+  type LiveProviderBundle,
   fixtureProviders,
   getChain,
   evmToken,
@@ -71,6 +72,26 @@ export interface ExplorerOptions {
    * that path, so it must not register the stub.
    */
   skipPaymentsStub?: boolean;
+  /**
+   * Data providers to serve from. Defaults to deterministic fixtures;
+   * the merged orchestrator passes the live bundle (free public APIs with
+   * per-call fixture fallback) when DATA_SOURCE=live.
+   */
+  providers?: LiveProviderBundle | ReturnType<typeof fixtureProviders>;
+}
+
+/** Honest per-response label: live, fixture, or fixture-fallback. */
+function dataSourceLabel(provider: object): "live" | "fixture" | "fixture-fallback" {
+  const src = (provider as { lastSource?: string }).lastSource;
+  if (src === "live") return "live";
+  if (src === "fixture-fallback") return "fixture-fallback";
+  return "fixture";
+}
+
+/** Evidence retrieval method string mirrors the provider actually used. */
+function retrievalMethodOf(provider: object): "api-fetch" | "mock-fixture" {
+  const label = dataSourceLabel(provider);
+  return label === "live" ? "api-fetch" : label === "fixture-fallback" ? "mock-fixture" : "mock-fixture";
 }
 
 export function registerExplorerRoutes(
@@ -79,21 +100,21 @@ export function registerExplorerRoutes(
   now: () => Date,
   options: ExplorerOptions = {},
 ): void {
-  const providers = fixtureProviders();
+  const providers = options.providers ?? fixtureProviders();
 
-  /** GET /api/v1/tokens?chain= — discovered fixture tokens. */
+  /** GET /api/v1/tokens?chain= — trending tokens (live GeckoTerminal or fixture). */
   app.get("/api/v1/tokens", async (request) => {
     const chain = supportedChain(((request.query as Record<string, string>).chain ?? "base"));
     const discovery = await providers.discovery.discoverTokens(chain, { limit: 10 });
     return {
-      dataSource: "fixture",
+      dataSource: dataSourceLabel(providers.discovery),
       chain: chain.id,
       tokens: discovery.items.map((t) => ({ address: t.token.address, symbol: t.token.symbol, tvlUsd: t.tvlUsd, observedAt: t.observedAt })),
       nextCursor: discovery.nextCursor,
     };
   });
 
-  /** GET /api/v1/tokens/:chain/:address — metadata, liquidity, fees, provenance. */
+  /** GET /api/v1/tokens/:chain/:address — audit: metadata, pools, liquidity, fees, provenance. */
   app.get("/api/v1/tokens/:chain/:address", async (request) => {
     const params = request.params as { chain: string; address: string };
     const chain = supportedChain(params.chain);
@@ -102,8 +123,9 @@ export function registerExplorerRoutes(
     const liquidity = await providers.liquidity.getLiquidity(chain, token);
     const fees = await providers.fees.estimateFee(chain, { kind: "swap" });
     const provenance = await providers.provenance.getProvenance(chain);
+    const labels = [providers.metadata, providers.liquidity, providers.fees, providers.provenance].map(dataSourceLabel);
     return {
-      dataSource: "fixture",
+      dataSource: labels.every((l) => l === "live") ? "live" : labels.every((l) => l === "fixture") ? "fixture" : "mixed",
       chain: chain.id,
       token,
       metadata,
@@ -124,15 +146,15 @@ export function registerExplorerRoutes(
       : solanaToken(chain, address ?? first.token.address);
     const liquidity = await providers.liquidity.getLiquidity(chain, tokenIdentity);
     const evidence = liquidityEvidence(
-      { chain, providerName: providers.liquidity.name, retrievalMethod: "mock-fixture" },
+      { chain, providerName: providers.liquidity.name, retrievalMethod: retrievalMethodOf(providers.liquidity) },
       liquidity.items,
       tokenIdentity,
       now().toISOString(),
     );
-    return { dataSource: "fixture", chain: chain.id, token: tokenIdentity, evidence };
+    return { dataSource: dataSourceLabel(providers.liquidity), chain: chain.id, token: tokenIdentity, evidence };
   });
 
-  /** GET /api/v1/risk?chain= — token risk findings from the risk agent over fixture evidence. */
+  /** GET /api/v1/risk?chain= — rug/bull risk findings over live liquidity evidence. */
   app.get("/api/v1/risk", async (request) => {
     const chain = supportedChain(((request.query as Record<string, string>).chain ?? "base"));
     const discovery = await providers.discovery.discoverTokens(chain, { limit: 3 });
@@ -142,7 +164,7 @@ export function registerExplorerRoutes(
       const tokenIdentity = token.token;
       const liquidity = await providers.liquidity.getLiquidity(chain, tokenIdentity);
       const evidence = liquidityEvidence(
-        { chain, providerName: providers.liquidity.name, retrievalMethod: "mock-fixture" },
+        { chain, providerName: providers.liquidity.name, retrievalMethod: retrievalMethodOf(providers.liquidity) },
         liquidity.items,
         tokenIdentity,
         now().toISOString(),
@@ -154,17 +176,17 @@ export function registerExplorerRoutes(
       });
       findings.push({ token: { chainId: chain.id, address: tokenIdentity.address, symbol: tokenIdentity.symbol }, risk: output });
     }
-    return { dataSource: "fixture", chain: chain.id, findings };
+    return { dataSource: dataSourceLabel(providers.discovery), chain: chain.id, findings };
   });
 
-  /** GET /api/v1/whales?chain= — fixture wallet activity classified by the whale agent. */
+  /** GET /api/v1/whales?chain= — wallet activity (live RPC logs or fixture) classified by the whale agent. */
   app.get("/api/v1/whales", async (request) => {
     const chain = supportedChain(((request.query as Record<string, string>).chain ?? "base"));
     const wallet = (request.query as Record<string, string>).wallet ?? FIXTURE_WALLETS[chain.id] ?? (chain.kind === "evm" ? "0xdef0000000000000000000000000000000000009" : "9WzDXwBbmkg8ZTbNMqDmHADSafsSx4zJqF8EKkejiCFr");
     const tokenIdentity = chain.kind === "evm" ? evmToken(chain, "0xabc0000000000000000000000000000000000001") : solanaToken(chain, "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v");
     const liquidity = await providers.liquidity.getLiquidity(chain, tokenIdentity);
     const evidence = liquidityEvidence(
-      { chain, providerName: providers.liquidity.name, retrievalMethod: "mock-fixture" },
+      { chain, providerName: providers.liquidity.name, retrievalMethod: retrievalMethodOf(providers.liquidity) },
       liquidity.items,
       tokenIdentity,
       now().toISOString(),
@@ -177,7 +199,7 @@ export function registerExplorerRoutes(
     });
     const raw = await providers.activity.getActivity(chain, wallet, { limit: 20 });
     return {
-      dataSource: "fixture",
+      dataSource: dataSourceLabel(providers.activity),
       chain: chain.id,
       wallet,
       analysis: activity,
@@ -192,7 +214,7 @@ export function registerExplorerRoutes(
     const tokenIdentity = chain.kind === "evm" ? evmToken(chain, "0xabc0000000000000000000000000000000000001") : solanaToken(chain, "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v");
     const liquidity = await providers.liquidity.getLiquidity(chain, tokenIdentity);
     const evidence = liquidityEvidence(
-      { chain, providerName: providers.liquidity.name, retrievalMethod: "mock-fixture" },
+      { chain, providerName: providers.liquidity.name, retrievalMethod: retrievalMethodOf(providers.liquidity) },
       liquidity.items,
       tokenIdentity,
       now().toISOString(),
@@ -202,7 +224,58 @@ export function registerExplorerRoutes(
       chainId: chain.id,
       evidence,
     });
-    return { dataSource: "fixture", chain: chain.id, analysis };
+    return { dataSource: dataSourceLabel(providers.fees), chain: chain.id, analysis };
+  });
+
+  /** GET /api/v1/price?chain=&address= — current price + 24h momentum + rug/bull context (paid, price.check). */
+  app.get("/api/v1/price", async (request, reply) => {
+    const query = request.query as Record<string, string>;
+    if (!query.address) {
+      reply.code(400).send({ error: "ADDRESS_REQUIRED", detail: "pass ?chain=base&address=0x..." });
+      return;
+    }
+    const prices = "prices" in providers ? (providers as LiveProviderBundle).prices : undefined;
+    if (!prices) {
+      reply.code(503).send({
+        error: "PRICE_UNAVAILABLE",
+        detail: "price.check requires live data providers; set DATA_SOURCE=live",
+      });
+      return;
+    }
+    const chain = supportedChain(query.chain ?? "base");
+    try {
+      const { pair, source } = await prices.getPrice(chain, query.address);
+      const liquidityUsd = pair.liquidity?.usd ?? 0;
+      const volume24hUsd = pair.volume?.h24 ?? 0;
+      const ageHours = pair.pairCreatedAt ? (Date.now() - pair.pairCreatedAt) / 3_600_000 : undefined;
+      const h24 = pair.priceChange?.h24 ?? 0;
+      reply.send({
+        dataSource: source === "live" ? "live" : "fixture-fallback",
+        chain: chain.id,
+        address: pair.baseToken.address,
+        token: { symbol: pair.baseToken.symbol, name: pair.baseToken.name },
+        pool: { dexId: pair.dexId, pairAddress: pair.pairAddress, quoteToken: pair.quoteToken.symbol },
+        priceUsd: Number(pair.priceUsd ?? 0),
+        priceChangePercent: { h1: pair.priceChange?.h1, h6: pair.priceChange?.h6, h24: h24 },
+        liquidityUsd,
+        volume24hUsd,
+        marketCapUsd: pair.marketCap ?? pair.fdv,
+        rugBullContext: {
+          // Deterministic, explainable heuristics; no black-box score.
+          poolAgeHours: ageHours,
+          liquidityToVolume24h: volume24hUsd > 0 ? Number((liquidityUsd / volume24hUsd).toFixed(4)) : undefined,
+          buys24h: pair.txns?.h24?.buys,
+          sells24h: pair.txns?.h24?.sells,
+          buySellRatio: pair.txns?.h24 && pair.txns.h24.sells ? Number(((pair.txns.h24.buys ?? 0) / pair.txns.h24.sells).toFixed(3)) : undefined,
+          momentum: h24 >= 0 ? "bull" : "bear",
+        },
+      });
+    } catch (err) {
+      reply.code(502).send({
+        error: "PRICE_UNAVAILABLE",
+        detail: err instanceof Error ? err.message : "no live price available for this token",
+      });
+    }
   });
 
   if (!options.skipPaymentsStub) {

@@ -15,7 +15,7 @@ import {
 import type { EventPublisher } from "@sentinel-mesh/queue";
 import type { PolicyEngine } from "@sentinel-mesh/policy-engine";
 import { randomUUID } from "node:crypto";
-import { registerExplorerRoutes } from "./explorer.js";
+import { registerExplorerRoutes, type ExplorerOptions } from "./explorer.js";
 
 /**
  * Fastify application factory.
@@ -41,6 +41,8 @@ export interface AppDeps {
   uuid?: () => string;
   /** Skip the GET /api/v1/payments stub (merged orchestrator serves real records). */
   skipPaymentsStub?: boolean;
+  /** Data providers for the explorer routes; defaults to deterministic fixtures. */
+  providers?: ExplorerOptions["providers"];
 }
 
 /**
@@ -150,7 +152,9 @@ export function registerApiRoutes(app: FastifyInstance, deps: AppDeps): void {
       "Signals posted to POST /api/v1/signals, kept in an in-memory dev buffer (last 50). Each row is attributed to its source wallet and carries the policy decision. No signal executes anything in this phase.",
   }));
 
-  registerExplorerRoutes(app, logger, now, deps.skipPaymentsStub ? { skipPaymentsStub: true } : {});
+  const explorerOptions: ExplorerOptions = deps.skipPaymentsStub ? { skipPaymentsStub: true } : {};
+  if (deps.providers) explorerOptions.providers = deps.providers;
+  registerExplorerRoutes(app, logger, now, explorerOptions);
 
 }
 

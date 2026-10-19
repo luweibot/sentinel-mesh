@@ -83,6 +83,38 @@ export const SERVICE_CATALOG: readonly PricedService[] = [
     routes: ["POST /api/v1/workflows/research"],
     rationale: "Bundle price: 5x a single task with a built-in discount vs paying $0.10 per task 5+ times.",
   },
+  {
+    serviceId: "token.detail",
+    amountAtomic: cents(0.01),
+    priceUsd: "0.01",
+    description: "GET /api/v1/tokens/:chain/:address — single-token audit: on-chain metadata, pools, liquidity, fees, provenance.",
+    routes: ["GET /api/v1/tokens/:chain/:address"],
+    rationale: "Single-token deep read across public RPC + DexScreener; matches the $0.01 market flat rate for x402 data endpoints.",
+  },
+  {
+    serviceId: "price.check",
+    amountAtomic: cents(0.01),
+    priceUsd: "0.01",
+    description: "GET /api/v1/price?chain=&address= — current price, 24h change, liquidity and rug/bull context.",
+    routes: ["GET /api/v1/price"],
+    rationale: "Real-time quote plus momentum context; matches the $0.01 market rate for x402 price feeds.",
+  },
+  {
+    serviceId: "risk.check",
+    amountAtomic: cents(0.02),
+    priceUsd: "0.02",
+    description: "GET /api/v1/risk?chain= — rug/bull risk findings over live liquidity evidence for trending tokens.",
+    routes: ["GET /api/v1/risk"],
+    rationale: "Runs the deterministic risk agent over fresh liquidity evidence for several tokens; 2x the data rate.",
+  },
+  {
+    serviceId: "whales.list",
+    amountAtomic: cents(0.02),
+    priceUsd: "0.02",
+    description: "GET /api/v1/whales?chain= — recent wallet activity classified by the whale-tracking agent.",
+    routes: ["GET /api/v1/whales"],
+    rationale: "RPC log scan plus agent classification; 2x the data rate.",
+  },
 ];
 
 /** Routes that stay free: discovery, health, payment plumbing, task retrieval. */

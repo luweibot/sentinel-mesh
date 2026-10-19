@@ -287,6 +287,22 @@ describe("x402 route gating (service catalog)", () => {
     expect(bad.statusCode).toBe(402); // $0.01 payment does not unlock a $0.10 task
   });
 
+  it("402s the newly priced data routes (token detail, price, risk, whales)", async () => {
+    const app = await makeApp();
+    const cases: Array<{ url: string; serviceId: string }> = [
+      { url: "/api/v1/tokens/base/0x833589fcd6edb6e08f4c2c6ff80ffe7fd34502b0", serviceId: "token.detail" },
+      { url: "/api/v1/price?chain=base&address=0x833589fcd6edb6e08f4c2c6ff80ffe7fd34502b0", serviceId: "price.check" },
+      { url: "/api/v1/risk?chain=base", serviceId: "risk.check" },
+      { url: "/api/v1/whales?chain=base", serviceId: "whales.list" },
+    ];
+    for (const c of cases) {
+      const res = await app.inject({ method: "GET", url: c.url });
+      expect(res.statusCode).toBe(402);
+      expect((res.json() as { serviceId: string }).serviceId).toBe(c.serviceId);
+    }
+    await app.close();
+  });
+
   it("publishes the catalog and free routes stay open", async () => {
     const app = await makeApp();
     const cat = await app.inject({ method: "GET", url: "/api/v1/payments/catalog" });
@@ -294,7 +310,7 @@ describe("x402 route gating (service catalog)", () => {
     const body = cat.json() as { receiver: string; services: { serviceId: string; priceUsd: string }[] };
     expect(body.receiver).toBe("0xa94c05c9949cafd958c858036c4830cd8bc1618a");
     expect(body.services.map((s) => s.serviceId)).toEqual(
-      expect.arrayContaining(["tokens.snapshot", "fees.snapshot", "signals.evaluate", "tasks.research", "workflows.research"]),
+      expect.arrayContaining(["tokens.snapshot", "fees.snapshot", "signals.evaluate", "tasks.research", "workflows.research", "token.detail", "price.check", "risk.check", "whales.list"]),
     );
     const agents = await app.inject({ method: "GET", url: "/api/v1/agents" });
     expect(agents.statusCode).toBe(200); // discovery stays free
