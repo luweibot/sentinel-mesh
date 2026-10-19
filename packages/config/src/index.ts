@@ -39,6 +39,14 @@ export const AppConfig = z
     databaseUrl: z.string().url().optional(),
     /** Optional in dev. Unset means the in-memory event bus. */
     redisUrl: z.string().url().optional(),
+    /** x402 receiver: the project's EVM wallet that payments must be made to. */
+    paymentsReceiverAddress: z.string().regex(EvmAddressPattern).default(
+      "0xa94c05c9949cafd958c858036c4830cd8bc1618a",
+    ),
+    /** x402 facilitation mode: paper = mock facilitator (no on-chain settlement). */
+    paymentsMode: z.enum(["paper", "live"]).default("paper").refine((mode) => mode === "paper", {
+      message: "paymentsMode=live requires an on-chain facilitator ADR and security sign-off; only paper is enabled",
+    }),
     /** Phase 0: only "mock" is legal. The enum documents the future "readonly" mode. */
     chainAdapterMode: z.enum(["mock", "readonly"]).default("mock").refine(
       (mode) => mode === "mock",
@@ -98,6 +106,8 @@ function pick(env: NodeJS.ProcessEnv) {
     orchestratorPort: env.ORCHESTRATOR_PORT,
     databaseUrl: env.DATABASE_URL === "" ? undefined : env.DATABASE_URL,
     redisUrl: env.REDIS_URL === "" ? undefined : env.REDIS_URL,
+    paymentsReceiverAddress: env.PAYMENTS_RECEIVER_ADDRESS,
+    paymentsMode: env.PAYMENTS_MODE,
     chainAdapterMode: env.CHAIN_ADAPTER_MODE,
     policyMode: env.POLICY_MODE,
     executionMode: env.EXECUTION_MODE,

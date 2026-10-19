@@ -11,6 +11,8 @@ import type { ExecutionStack } from "./execution.js";
 import type { PaymentsStack } from "./skills-payments.js";
 import { SkillIntakeRejectedError, SkillRegistryError, type SkillRegistry } from "@sentinel-mesh/skills";
 import { registerApiRoutes } from "@sentinel-mesh/api";
+import { FREE_ROUTES, SERVICE_CATALOG, findServiceByRoute, requirementForService } from "@sentinel-mesh/payments";
+import { SUPPORTED_X402_VERSION, X402_VERSION_HEADER } from "@sentinel-mesh/contracts";
 import type { EventPublisher } from "@sentinel-mesh/queue";
 import type { PolicyEngine } from "@sentinel-mesh/policy-engine";
 
@@ -456,6 +458,70 @@ export function buildApp(deps: AppDeps): FastifyInstance {
 
   const payments = deps.payments;
   if (payments) {
+    // -----------------------------------------------------------------
+    // x402 gate: every priced route requires a confirmed payment for the
+    // exact catalog amount, made to the project wallet, BEFORE the
+    // handler responds. Unpaid requests receive 402 + the requirement.
+    // -----------------------------------------------------------------
+    const receiver = deps.config.paymentsReceiverAddress;
+    app.addHook("preHandler", async (request, reply) => {
+      const route = `${request.method} ${request.routeOptions?.url ?? ""}`;
+      if (FREE_ROUTES.includes(route)) {
+        return;
+      }
+      const service = findServiceByRoute(route);
+      if (!service) {
+        return; // unpriced routes (execution, task retrieval) stay open;
+                // payments grant content access only, never trading.
+      }
+      const paymentId = (request.headers["x-payments"] ?? "") as string;
+      if (paymentId) {
+        const record = payments.guard.list().find((r) => r.paymentId === paymentId);
+        const ok =
+          record !== undefined &&
+          (record.status === "settled" || record.status === "recorded") &&
+          record.grants.contentAccess === true &&
+          record.amount === service.amountAtomic &&
+          record.payTo.toLowerCase() === receiver.toLowerCase();
+        if (ok) {
+          return; // payment confirmed for this exact service price
+        }
+      }
+      // No valid payment: answer 402 with the requirement the payer needs.
+      reply.header(X402_VERSION_HEADER, SUPPORTED_X402_VERSION);
+      reply.code(402).send({
+        error: "PAYMENT_REQUIRED",
+        serviceId: service.serviceId,
+        priceUsd: service.priceUsd,
+        requirement: requirementForService(service, receiver),
+        hint: "POST /api/v1/payments/verify with an x402 payment for the requirement, then retry with the paymentId in the X-PAYMENTS header",
+      });
+    });
+
+    /** Public catalog: every priced service, its exact price and rationale. */
+    app.get("/api/v1/payments/catalog", async () => ({
+      receiver,
+      asset: "USDC on Base (0x833589fcd6edb6e08f4c2c6ff80ffe7fd34502b0)",
+      mode: deps.config.paymentsMode,
+      services: SERVICE_CATALOG.map((svc) => ({
+        serviceId: svc.serviceId,
+        priceUsd: svc.priceUsd,
+        amountAtomic: svc.amountAtomic,
+        description: svc.description,
+        rationale: svc.rationale,
+      })),
+    }));
+
+    /** Requirement generator for a catalog service. */
+    app.get("/api/v1/payments/requirement", async (request, reply) => {
+      const serviceId = (request.query as { serviceId?: string }).serviceId;
+      const svc = SERVICE_CATALOG.find((s) => s.serviceId === serviceId);
+      if (!svc) {
+        reply.code(404).send({ error: "SERVICE_NOT_FOUND", services: SERVICE_CATALOG.map((s) => s.serviceId) });
+        return;
+      }
+      return { serviceId: svc.serviceId, requirement: requirementForService(svc, receiver) };
+    });
     /** Payment records + reconciliation report. */
     app.get("/api/v1/payments", async () => ({
       records: payments.guard.list(),

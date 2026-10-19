@@ -1,7 +1,7 @@
 import type { AppConfig } from "@sentinel-mesh/config";
 import type { Logger } from "@sentinel-mesh/logger";
 import { SkillRegistry } from "@sentinel-mesh/skills";
-import { MockFacilitator, PaymentRecordStore, SpendCapLedger, X402PaymentGuard, MOCK_ASSETS, MOCK_RECIPIENTS } from "@sentinel-mesh/payments";
+import { MockFacilitator, PaymentRecordStore, SpendCapLedger, X402PaymentGuard, MOCK_ASSETS } from "@sentinel-mesh/payments";
 import type { SpendCapStateJournal } from "@sentinel-mesh/orchestrator";
 import type { AgentCapability } from "@sentinel-mesh/contracts";
 
@@ -70,12 +70,13 @@ export function buildPaymentsStack(
   clock: { now(): Date },
   deps: PaymentsDeps = {},
 ): PaymentsStack {
-  void config;
   const facilitator = new MockFacilitator(clock);
   const caps = new SpendCapLedger(DEMO_SPEND_CAPS, deps.journal);
+  // x402 receiver: the project's wallet (config), never the demo fixtures.
+  const recipients = [{ address: config.paymentsReceiverAddress, label: "sentinel-mesh project wallet" }];
   const guard = new X402PaymentGuard({
     assets: MOCK_ASSETS,
-    recipients: MOCK_RECIPIENTS,
+    recipients,
     caps,
     records: new PaymentRecordStore(),
     facilitatorIds: [facilitator.facilitatorId],

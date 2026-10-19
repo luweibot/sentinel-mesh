@@ -2,7 +2,8 @@ import { describe, expect, it } from "vitest";
 import { PassThrough } from "node:stream";
 import { createLogger } from "@sentinel-mesh/logger";
 import { loadConfig } from "@sentinel-mesh/config";
-import { InMemoryEventBus } from "@sentinel-mesh/queue";
+import { InMemoryEventBus, createEventPublisher } from "@sentinel-mesh/queue";
+import { DeterministicPolicyEngine } from "@sentinel-mesh/policy-engine";
 import { createHash, randomUUID } from "node:crypto";
 import {
   InMemoryEventOutbox,
@@ -221,5 +222,81 @@ describe("x402 payment endpoints", () => {
     });
     expect(approve.statusCode).toBe(409);
     await app.close();
+  });
+});
+
+describe("x402 route gating (service catalog)", () => {
+  const config = loadConfig({});
+  const logger = createLogger({ service: "test", level: "fatal" });
+  const bus = new InMemoryEventBus();
+  const engine = new OrchestrationEngine({ bus, logger, clock: { now: () => NOW } });
+  registerResearchAgents(engine);
+  const payments = buildPaymentsStack(config, logger, { now: () => NOW });
+  const policyEngine = new DeterministicPolicyEngine({
+    policyVersion: "0.1.0",
+    rules: { allowedChains: ["base", "solana"], maxNotionalUsdCents: 50000 },
+  });
+  const makeApp = async () => {
+    const publisher = await createEventPublisher({});
+    return buildApp({
+      config, logger, engine,
+      skills: buildSkillsStack(config, logger, { now: () => NOW }).registry,
+      payments,
+      api: { publisher, policyEngine, busMode: "in-memory" },
+      storageMode: "in-memory",
+    });
+  };
+  it("402s an unpaid priced route with the requirement for the project wallet", async () => {
+    const app = await makeApp();
+    const res = await app.inject({ method: "GET", url: "/api/v1/tokens" });
+    expect(res.statusCode).toBe(402);
+    const body = res.json() as {
+      error: string; serviceId: string; priceUsd: string;
+      requirement: { payTo: string; maxAmountRequired: string; network: number };
+    };
+    expect(body.error).toBe("PAYMENT_REQUIRED");
+    expect(body.serviceId).toBe("tokens.snapshot");
+    expect(body.priceUsd).toBe("0.01");
+    expect(body.requirement.payTo).toBe("0xa94c05c9949cafd958c858036c4830cd8bc1618a");
+    expect(body.requirement.maxAmountRequired).toBe("10000"); // $0.01 in USDC atomic units
+    expect(res.headers["x-payments-version"]).toBe("1");
+  });
+
+  it("serves a priced route after a confirmed exact payment (and rejects wrong amounts)", async () => {
+    const app = await makeApp();
+    // An underpayment is a VALID payment ($0.0001, guard records it)...
+    const wrongReq = mockRequirement({ maxAmountRequired: "100" });
+    const wrongPay = mockPayment({ payTo: wrongReq.payTo, maxAmountRequired: wrongReq.maxAmountRequired }, randomUUID());
+    const wrongPaymentId = randomUUID();
+    const w = await app.inject({ method: "POST", url: "/api/v1/payments/verify", payload: { agentId: "trend-scout-agent", requirement: wrongReq, payment: wrongPay, paymentId: wrongPaymentId } });
+    expect(w.statusCode).toBe(200);
+    // ...but the gate still 402s: the record amount does not match the $0.01 catalog price.
+    const still402 = await app.inject({ method: "GET", url: "/api/v1/tokens", headers: { "x-payments": wrongPaymentId } });
+    expect(still402.statusCode).toBe(402);
+
+    const requirement = mockRequirement({ maxAmountRequired: "10000" }); // $0.01 tokens.snapshot price
+    const payment = mockPayment({ payTo: requirement.payTo, maxAmountRequired: "10000" }, randomUUID());
+    const paymentId = randomUUID();
+    const verify = await app.inject({ method: "POST", url: "/api/v1/payments/verify", payload: { agentId: "trend-scout-agent", requirement, payment, paymentId } });
+    expect(verify.statusCode).toBe(200);
+    const ok = await app.inject({ method: "GET", url: "/api/v1/tokens", headers: { "x-payments": paymentId } });
+    expect(ok.statusCode).toBe(200);
+    expect(ok.json()).toHaveProperty("tokens");
+    // replaying the paymentId on another priced route with a different price fails
+    const bad = await app.inject({ method: "POST", url: "/api/v1/tasks", headers: { "x-payments": paymentId }, payload: { agentId: "research-agent", taskType: "research-topic", input: { topic: "x" } } });
+    expect(bad.statusCode).toBe(402); // $0.01 payment does not unlock a $0.10 task
+  });
+
+  it("publishes the catalog and free routes stay open", async () => {
+    const app = await makeApp();
+    const cat = await app.inject({ method: "GET", url: "/api/v1/payments/catalog" });
+    expect(cat.statusCode).toBe(200);
+    const body = cat.json() as { receiver: string; services: { serviceId: string; priceUsd: string }[] };
+    expect(body.receiver).toBe("0xa94c05c9949cafd958c858036c4830cd8bc1618a");
+    expect(body.services.map((s) => s.serviceId)).toEqual(
+      expect.arrayContaining(["tokens.snapshot", "fees.snapshot", "signals.evaluate", "tasks.research", "workflows.research"]),
+    );
+    const agents = await app.inject({ method: "GET", url: "/api/v1/agents" });
+    expect(agents.statusCode).toBe(200); // discovery stays free
   });
 });
