@@ -26,12 +26,8 @@ export const LIVE_FACILITATOR_ID = "base-usdc-facilitator-v1";
 export const USDC_BASE_ADDRESS = "0x833589fcd6edb6e08f4c2c6ff80ffe7fd34502b0";
 export const BASE_CHAIN_ID = 8453;
 
-const EIP3009_DOMAIN = {
-  name: "USD Coin",
-  version: "2",
-  chainId: BASE_CHAIN_ID,
-  verifyingContract: USDC_BASE_ADDRESS,
-} as const;
+const EIP3009_DOMAIN_NAME = "USD Coin";
+const EIP3009_DOMAIN_VERSION = "2";
 
 const EIP3009_TYPES = {
   TransferWithAuthorization: [
@@ -109,10 +105,26 @@ export interface LiveFacilitatorClock {
 export class LiveFacilitator {
   readonly facilitatorId = LIVE_FACILITATOR_ID;
 
+  /** USDC contract this facilitator verifies against (config override-able). */
+  private readonly usdcAddress: `0x${string}`;
+
   constructor(
     private readonly rpc: RpcCaller,
     private readonly clock: LiveFacilitatorClock = { now: () => new Date() },
-  ) {}
+    options: { usdcAddress?: string } = {},
+  ) {
+    this.usdcAddress = ((options.usdcAddress ?? USDC_BASE_ADDRESS).toLowerCase()) as `0x${string}`;
+  }
+
+  /** EIP-712 domain for USDC EIP-3009 authorizations on this deployment. */
+  private get domain() {
+    return {
+      name: EIP3009_DOMAIN_NAME,
+      version: EIP3009_DOMAIN_VERSION,
+      chainId: BASE_CHAIN_ID,
+      verifyingContract: this.usdcAddress,
+    };
+  }
 
   /**
    * Cryptographically verify the EIP-3009 transferWithAuthorization
@@ -123,7 +135,7 @@ export class LiveFacilitator {
   async verifySignature(payment: Eip3009PaymentPayload): Promise<boolean> {
     try {
       const digest = hashTypedData({
-        domain: EIP3009_DOMAIN,
+        domain: this.domain,
         types: EIP3009_TYPES,
         primaryType: "TransferWithAuthorization",
         message: {
@@ -163,7 +175,7 @@ export class LiveFacilitator {
         return { ...base, payload: { success: false, error: { code: "receipt-not-found-or-failed", message: `no successful transaction ${input.transactionHash} on Base` } } };
       }
       const usedRaw = await this.rpc.call<string>("eth_call", [
-        { to: USDC_BASE_ADDRESS, data: encodeAuthorizationStatesCall(input.payer, nonceToBytes32Hex(input.nonce)) },
+        { to: this.usdcAddress, data: encodeAuthorizationStatesCall(input.payer, nonceToBytes32Hex(input.nonce)) },
         "latest",
       ]);
       const used = BigInt(usedRaw ?? "0x0") === 1n;

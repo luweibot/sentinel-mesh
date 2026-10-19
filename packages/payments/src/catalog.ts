@@ -142,7 +142,7 @@ export function findServiceById(serviceId: string): PricedService | undefined {
  * Build the x402 v1 payment requirement for a catalog service.
  * `payTo` is the project wallet; the amount is the exact catalog price.
  */
-export function requirementForService(service: PricedService, payTo: string): {
+export function requirementForService(service: PricedService, payTo: string, assetAddress: string = X402_ASSET_BASE_USDC): {
   scheme: "exactInEvm";
   network: number;
   asset: string;
@@ -155,7 +155,7 @@ export function requirementForService(service: PricedService, payTo: string): {
   return {
     scheme: "exactInEvm",
     network: X402_NETWORK_BASE,
-    asset: X402_ASSET_BASE_USDC,
+    asset: assetAddress,
     maxAmountRequired: service.amountAtomic,
     payTo,
     maxTimeoutSeconds: 300,

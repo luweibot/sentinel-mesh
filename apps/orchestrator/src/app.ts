@@ -502,7 +502,7 @@ export function buildApp(deps: AppDeps): FastifyInstance {
         error: "PAYMENT_REQUIRED",
         serviceId: service.serviceId,
         priceUsd: service.priceUsd,
-        requirement: requirementForService(service, receiver),
+        requirement: requirementForService(service, receiver, deps.config.baseUsdcAddress),
         hint: "POST /api/v1/payments/verify with an x402 payment for the requirement, then retry with the paymentId in the X-PAYMENTS header",
       });
     });
@@ -510,7 +510,7 @@ export function buildApp(deps: AppDeps): FastifyInstance {
     /** Public catalog: every priced service, its exact price and rationale. */
     app.get("/api/v1/payments/catalog", async () => ({
       receiver,
-      asset: "USDC on Base (0x833589fcd6edb6e08f4c2c6ff80ffe7fd34502b0)",
+      asset: `USDC on Base (${deps.config.baseUsdcAddress})`,
       mode: deps.config.paymentsMode,
       services: SERVICE_CATALOG.map((svc) => ({
         serviceId: svc.serviceId,
@@ -529,7 +529,7 @@ export function buildApp(deps: AppDeps): FastifyInstance {
         reply.code(404).send({ error: "SERVICE_NOT_FOUND", services: SERVICE_CATALOG.map((s) => s.serviceId) });
         return;
       }
-      return { serviceId: svc.serviceId, requirement: requirementForService(svc, receiver) };
+      return { serviceId: svc.serviceId, requirement: requirementForService(svc, receiver, deps.config.baseUsdcAddress) };
     });
     /** Payment records + reconciliation report. */
     app.get("/api/v1/payments", async () => ({

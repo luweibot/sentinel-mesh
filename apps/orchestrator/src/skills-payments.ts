@@ -74,13 +74,17 @@ export function buildPaymentsStack(
   // confirmed on-chain (Base public RPC). PAPER mode: mock facilitator, trust.
   const facilitator =
     config.paymentsMode === "live"
-      ? new LiveFacilitator(createHttpRpcCaller(config.baseRpcUrl), clock)
+      ? new LiveFacilitator(createHttpRpcCaller(config.baseRpcUrl), clock, { usdcAddress: config.baseUsdcAddress })
       : new MockFacilitator(clock);
   const caps = new SpendCapLedger(DEMO_SPEND_CAPS, 5_000, deps.journal);
   // x402 receiver: the project's wallet (config), never the demo fixtures.
   const recipients = [{ address: config.paymentsReceiverAddress, label: "sentinel-mesh project wallet" }];
   const guard = new X402PaymentGuard({
-    assets: MOCK_ASSETS,
+    // Base USDC address follows config (BASE_USDC_ADDRESS) so the guard's
+    // allowlist matches the requirement asset on this deployment's chain.
+    assets: MOCK_ASSETS.map((a) =>
+      a.chain === "base" ? { ...a, address: config.baseUsdcAddress } : a,
+    ),
     recipients,
     caps,
     records: new PaymentRecordStore(),

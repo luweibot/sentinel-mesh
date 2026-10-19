@@ -56,6 +56,12 @@ export const AppConfig = z
     paymentsMode: z.enum(["paper", "live"]).default("paper"),
     /** Public Base JSON-RPC endpoint used by the live facilitator (HTTPS only). */
     baseRpcUrl: z.string().url().default("https://mainnet.base.org"),
+    /**
+     * USDC contract address on Base used for x402 settlement. Defaults to
+     * canonical native USDC; override via BASE_USDC_ADDRESS if the
+     * deployment chain's USDC lives elsewhere.
+     */
+    baseUsdcAddress: z.string().regex(/^0x[0-9a-fA-F]{40}$/).default("0x833589fcd6edb6e08f4c2c6ff80ffe7fd34502b0"),
     /** Phase 0: only "mock" is legal. The enum documents the future "readonly" mode. */
     chainAdapterMode: z.enum(["mock", "readonly"]).default("mock").refine(
       (mode) => mode === "mock",
@@ -118,6 +124,7 @@ function pick(env: NodeJS.ProcessEnv) {
     paymentsReceiverAddress: env.PAYMENTS_RECEIVER_ADDRESS,
     paymentsMode: env.PAYMENTS_MODE,
     baseRpcUrl: env.BASE_RPC_URL,
+    baseUsdcAddress: env.BASE_USDC_ADDRESS,
     dataSource: env.DATA_SOURCE,
     chainAdapterMode: env.CHAIN_ADAPTER_MODE,
     policyMode: env.POLICY_MODE,
