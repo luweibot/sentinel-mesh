@@ -71,7 +71,7 @@ export function buildPaymentsStack(
   deps: PaymentsDeps = {},
 ): PaymentsStack {
   const facilitator = new MockFacilitator(clock);
-  const caps = new SpendCapLedger(DEMO_SPEND_CAPS, deps.journal);
+  const caps = new SpendCapLedger(DEMO_SPEND_CAPS, 5_000, deps.journal);
   // x402 receiver: the project's wallet (config), never the demo fixtures.
   const recipients = [{ address: config.paymentsReceiverAddress, label: "sentinel-mesh project wallet" }];
   const guard = new X402PaymentGuard({

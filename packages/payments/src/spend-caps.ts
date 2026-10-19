@@ -26,6 +26,12 @@ export class SpendCapLedger {
   constructor(
     private readonly caps: Record<string, number>,
     /**
+     * Default daily cap (USD cents) for agents without an explicit entry.
+     * A public x402 payer must be able to pay without pre-registration;
+     * the default keeps runaway spend bounded. $50/day.
+     */
+    private readonly defaultCapCents = 5_000,
+    /**
      * SECURITY (audit 2026-10-19): optional durable journal so a restart
      * cannot reset daily utilization. Reservations stay synchronous in
      * memory (race protection); journal writes are queued behind the
@@ -36,7 +42,7 @@ export class SpendCapLedger {
   ) {}
 
   capOf(agentId: string): number {
-    return this.caps[agentId] ?? 0;
+    return this.caps[agentId] ?? this.defaultCapCents;
   }
 
   utilized(agentId: string, now: Date): number {
