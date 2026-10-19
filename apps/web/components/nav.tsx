@@ -17,6 +17,7 @@ const NAV_ITEMS: Array<{ href: string; label: string }> = [
   { href: "/fees", label: "Fees" },
   { href: "/skills", label: "Skills" },
   { href: "/payments", label: "Payments" },
+  { href: "/ecosystem", label: "Ecosystem" },
   { href: "/execution", label: "Execution Safety" },
 ];
 
