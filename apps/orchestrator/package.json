@@ -2,6 +2,7 @@
   "dependencies": {
     "@fastify/cors": "^10",
     "@sentinel-mesh/agents": "workspace:*",
+    "@sentinel-mesh/api": "workspace:*",
     "@sentinel-mesh/chain-data": "workspace:*",
     "@sentinel-mesh/config": "workspace:*",
     "@sentinel-mesh/contracts": "workspace:*",
@@ -15,14 +16,14 @@
     "@sentinel-mesh/skills": "workspace:*",
     "dotenv": "^16.4.5",
     "fastify": "^5.12.2",
-    "zod": "^3.23.8",
-    "@sentinel-mesh/api": "workspace:*"
+    "zod": "^3.23.8"
   },
   "description": "Sentinel Mesh orchestration service: task issuing, research workflows, traces, budgets, retries, deadlines, and cancellation over the orchestration engine.",
   "devDependencies": {
     "@types/node": "^20.17.6",
     "tsx": "^4.19.2",
     "typescript": "^5.6.3",
+    "viem": "^2.57.7",
     "vitest": "^2.1.8"
   },
   "main": "./dist/server.js",

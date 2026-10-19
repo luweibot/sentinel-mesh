@@ -13,6 +13,7 @@ import {
 import type { Logger } from "@sentinel-mesh/logger";
 import { SpendCapLedger } from "./spend-caps.js";
 import { PaymentRecordStore } from "./records.js";
+import type { FacilitatorAdapter } from "./facilitator.js";
 
 /**
  * x402 v1 payment guard.
@@ -31,6 +32,8 @@ export interface X402GuardDeps {
   /** Per-agent daily caps, USD cents. */
   caps: SpendCapLedger;
   records: PaymentRecordStore;
+  /** Signature verification + settlement confirmation (mock in paper mode, on-chain in live mode). */
+  facilitator: FacilitatorAdapter;
   facilitatorIds: string[];
   clock: { now(): Date };
   logger: Logger;
@@ -89,6 +92,7 @@ export class X402PaymentGuard {
       amount: requirement.maxAmountRequired,
       status: "recorded",
       nonce: payment.payload.nonce,
+      payer: payment.payload.from,
       grants: { contentAccess: true, trading: false },
       recordedAt: now.toISOString(),
     };
@@ -115,6 +119,13 @@ export class X402PaymentGuard {
     }
     if (payment.payload.to.toLowerCase() !== requirement.payTo.toLowerCase()) {
       return this.reject(base, "settlement-mismatch", `payload recipient does not match payTo`);
+    }
+
+    // Signature: the EIP-3009 authorization must be signed by the payer.
+    // (Mock facilitator trusts any signature in paper mode; the live
+    // facilitator recovers the signer over the USDC EIP-712 domain.)
+    if (!(await this.deps.facilitator.verifySignature(payment.payload))) {
+      return this.reject(base, "invalid-signature", "EIP-3009 signature does not recover to the claimed payer");
     }
 
     // Expiry: EIP-3009 window.
@@ -146,15 +157,20 @@ export class X402PaymentGuard {
    * the evidence must match the recorded requirement (amount/asset/payTo
    * via the requirement hash, plus network and success).
    */
-  async verifySettlement(paymentId: string, settlement: unknown): Promise<PaymentGuardVerdict> {
+  async verifySettlement(paymentId: string, claim: { transactionHash?: string } = {}): Promise<PaymentGuardVerdict> {
     const record = this.deps.records.find(paymentId);
     if (!record) return { ok: false, code: "settlement-invalid", message: "unknown paymentId" };
-    let evidence: X402Settlement;
-    try {
-      evidence = X402Settlement.parse(settlement);
-    } catch (error) {
-      return { ok: false, code: "settlement-invalid", message: `settlement failed schema validation: ${error instanceof Error ? error.message : "invalid"}` };
-    }
+    if (record.status === "settled") return { ok: true, message: "idempotent settlement replay; payment already settled", record };
+    if (record.status !== "recorded") return { ok: false, code: "settlement-invalid", message: `payment status ${record.status} is not awaiting settlement` };
+    const txHash = claim.transactionHash?.trim();
+    if (!txHash) return { ok: false, code: "settlement-mismatch", message: "a transaction hash is required to confirm settlement" };
+    if (!record.payer) return { ok: false, code: "settlement-invalid", message: "record lacks payer address; cannot confirm settlement on-chain" };
+    // The facilitator CONFIRMS receipt (paper: trusts the claim; live:
+    // verifies receipt + authorization state on Base). Callers can never
+    // supply settlement evidence directly.
+    const evidence = X402Settlement.parse(
+      await this.deps.facilitator.confirmSettlement({ payer: record.payer, nonce: record.nonce, transactionHash: txHash }),
+    );
     if (!this.deps.facilitatorIds.includes(evidence.facilitatorId)) {
       return { ok: false, code: "settlement-facilitator-not-allowed", message: `facilitator '${evidence.facilitatorId}' is not allowlisted` };
     }

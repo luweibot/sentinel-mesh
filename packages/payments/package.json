@@ -24,6 +24,7 @@
   "dependencies": {
     "@sentinel-mesh/contracts": "workspace:*",
     "@sentinel-mesh/logger": "workspace:*",
+    "viem": "^2.57.7",
     "zod": "^3.23.8"
   },
   "devDependencies": {

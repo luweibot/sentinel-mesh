@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
 import { PassThrough } from "node:stream";
 import { createLogger } from "@sentinel-mesh/logger";
 import { loadConfig } from "@sentinel-mesh/config";
@@ -114,7 +115,7 @@ describe("x402 payment endpoints", () => {
   it("verifies a payment, settles it with evidence, and grants content access only", async () => {
     const { app } = deps();
     const requirement = mockRequirement();
-    const payment = mockPayment({ payTo: requirement.payTo, maxAmountRequired: requirement.maxAmountRequired }, randomUUID());
+    const payment = mockPayment({ payTo: requirement.payTo as string, maxAmountRequired: requirement.maxAmountRequired as string }, randomUUID());
     const paymentId = randomUUID();
     const verify = await app.inject({
       method: "POST",
@@ -127,7 +128,7 @@ describe("x402 payment endpoints", () => {
     const settle = await app.inject({
       method: "POST",
       url: "/api/v1/payments/settle",
-      payload: { paymentId, settlement: mockSettlement(`mock-tx-${paymentId.slice(0, 8)}`) },
+      payload: { paymentId, transactionHash: `mock-tx-${paymentId.slice(0, 8)}` },
     });
     expect(settle.statusCode).toBe(200);
     expect(settle.json().record.status).toBe("settled");
@@ -151,7 +152,7 @@ describe("x402 payment endpoints", () => {
   it("rejects payments to non-allowlisted recipients with a typed code", async () => {
     const { app } = deps();
     const requirement = mockRequirement({ payTo: "0xdead00000000000000000000000000000000beef" });
-    const payment = mockPayment({ payTo: requirement.payTo, maxAmountRequired: requirement.maxAmountRequired }, randomUUID());
+    const payment = mockPayment({ payTo: requirement.payTo as string, maxAmountRequired: requirement.maxAmountRequired as string }, randomUUID());
     const verify = await app.inject({
       method: "POST",
       url: "/api/v1/payments/verify",
@@ -166,7 +167,7 @@ describe("x402 payment endpoints", () => {
   it("rejects settlement evidence from an unregistered facilitator", async () => {
     const { app } = deps();
     const requirement = mockRequirement();
-    const payment = mockPayment({ payTo: requirement.payTo, maxAmountRequired: requirement.maxAmountRequired }, randomUUID());
+    const payment = mockPayment({ payTo: requirement.payTo as string, maxAmountRequired: requirement.maxAmountRequired as string }, randomUUID());
     const paymentId = randomUUID();
     await app.inject({
       method: "POST",
@@ -176,10 +177,13 @@ describe("x402 payment endpoints", () => {
     const settle = await app.inject({
       method: "POST",
       url: "/api/v1/payments/settle",
-      payload: { paymentId, settlement: mockSettlement("mock-tx-x", { facilitatorId: "rogue-facilitator" }) },
+      // Caller-supplied "settlement evidence" is IGNORED by the server: only the
+      // transaction hash is read, and the server's own facilitator produces the
+      // evidence. A rogue facilitatorId in the payload body must not leak in.
+      payload: { paymentId, transactionHash: "0xserver-controlled", settlement: mockSettlement("mock-tx-x", { facilitatorId: "rogue-facilitator" }) },
     });
-    expect(settle.statusCode).toBe(422);
-    expect(settle.json().code).toBe("settlement-facilitator-not-allowed");
+    expect(settle.statusCode).toBe(200);
+    expect(settle.json().record.facilitatorId).toBe("mock-facilitator");
     await app.close();
   });
 
@@ -188,7 +192,7 @@ describe("x402 payment endpoints", () => {
     const requirement = mockRequirement();
     const agent = "trend-scout-agent";
     for (let index = 0; index < 12; index++) {
-      const payment = mockPayment({ payTo: requirement.payTo, maxAmountRequired: requirement.maxAmountRequired }, randomUUID());
+      const payment = mockPayment({ payTo: requirement.payTo as string, maxAmountRequired: requirement.maxAmountRequired as string }, randomUUID());
       const res = await app.inject({
         method: "POST",
         url: "/api/v1/payments/verify",
@@ -262,11 +266,68 @@ describe("x402 route gating (service catalog)", () => {
     expect(res.headers["x-payments-version"]).toBe("1");
   });
 
+  it("LIVE mode: a recorded-but-unsettled payment does NOT unlock content until settled on-chain", async () => {
+    const liveConfig = loadConfig({ PAYMENTS_MODE: "live", BASE_RPC_URL: "https://mainnet.base.org" });
+    const livePayments = buildPaymentsStack(liveConfig, logger, { now: () => NOW });
+    const publisher = await createEventPublisher({});
+    const app = await buildApp({
+      config: liveConfig, logger, engine,
+      skills: buildSkillsStack(liveConfig, logger, { now: () => NOW }).registry,
+      payments: livePayments,
+      api: { publisher, policyEngine, busMode: "in-memory" },
+      storageMode: "in-memory",
+    });
+    const requirement = mockRequirement({ maxAmountRequired: "10000" });
+    // LIVE mode verifies signatures cryptographically: sign a real EIP-3009
+    // authorization over the USDC domain on Base.
+    const account = privateKeyToAccount(generatePrivateKey());
+    const nonce = randomUUID();
+    // Match the suite's fixed clock (April 1 2026, 12:00:30Z).
+    const validAfter = new Date(Date.parse("2026-04-01T11:59:00.000Z")).toISOString();
+    const validBefore = new Date(Date.parse("2026-04-01T12:05:00.000Z")).toISOString();
+    const signature = await account.signTypedData({
+      domain: { name: "USD Coin", version: "2", chainId: 8453, verifyingContract: "0x833589fcd6edb6e08f4c2c6ff80ffe7fd34502b0" },
+      types: {
+        TransferWithAuthorization: [
+          { name: "from", type: "address" },
+          { name: "to", type: "address" },
+          { name: "value", type: "uint256" },
+          { name: "validAfter", type: "uint256" },
+          { name: "validBefore", type: "uint256" },
+          { name: "nonce", type: "bytes32" },
+        ],
+      },
+      primaryType: "TransferWithAuthorization",
+      message: {
+        from: account.address,
+        to: requirement.payTo as `0x${string}`,
+        value: 10000n,
+        validAfter: BigInt(Math.floor(Date.parse(validAfter) / 1000)),
+        validBefore: BigInt(Math.floor(Date.parse(validBefore) / 1000)),
+        nonce: ("0x" + nonce.replace(/-/g, "").padStart(64, "0")) as unknown as `0x${string}`,
+      },
+    });
+    const payment = mockPayment({ payTo: requirement.payTo as string, maxAmountRequired: "10000" }, nonce, {
+      from: account.address, validAfter, validBefore, signature,
+    });
+    const paymentId = randomUUID();
+    // The guard accepts the cryptographically valid payment...
+    const verify = await app.inject({
+      method: "POST", url: "/api/v1/payments/verify",
+      payload: { agentId: "trend-scout-agent", requirement, payment, paymentId },
+    });
+    expect(verify.statusCode).toBe(200);
+    // ...but in LIVE mode the record is only "recorded" — the gate must 402.
+    const gated = await app.inject({ method: "GET", url: "/api/v1/tokens", headers: { "x-payments": paymentId } });
+    expect(gated.statusCode).toBe(402);
+    await app.close();
+  });
+
   it("serves a priced route after a confirmed exact payment (and rejects wrong amounts)", async () => {
     const app = await makeApp();
     // An underpayment is a VALID payment ($0.0001, guard records it)...
     const wrongReq = mockRequirement({ maxAmountRequired: "100" });
-    const wrongPay = mockPayment({ payTo: wrongReq.payTo, maxAmountRequired: wrongReq.maxAmountRequired }, randomUUID());
+    const wrongPay = mockPayment({ payTo: wrongReq.payTo as string, maxAmountRequired: wrongReq.maxAmountRequired as string }, randomUUID());
     const wrongPaymentId = randomUUID();
     const w = await app.inject({ method: "POST", url: "/api/v1/payments/verify", payload: { agentId: "trend-scout-agent", requirement: wrongReq, payment: wrongPay, paymentId: wrongPaymentId } });
     expect(w.statusCode).toBe(200);
@@ -275,7 +336,7 @@ describe("x402 route gating (service catalog)", () => {
     expect(still402.statusCode).toBe(402);
 
     const requirement = mockRequirement({ maxAmountRequired: "10000" }); // $0.01 tokens.snapshot price
-    const payment = mockPayment({ payTo: requirement.payTo, maxAmountRequired: "10000" }, randomUUID());
+    const payment = mockPayment({ payTo: requirement.payTo as string, maxAmountRequired: "10000" }, randomUUID());
     const paymentId = randomUUID();
     const verify = await app.inject({ method: "POST", url: "/api/v1/payments/verify", payload: { agentId: "trend-scout-agent", requirement, payment, paymentId } });
     expect(verify.statusCode).toBe(200);

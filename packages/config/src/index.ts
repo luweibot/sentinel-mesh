@@ -45,10 +45,17 @@ export const AppConfig = z
     ),
     /** Market data source: fixture (deterministic placeholders) or live (free public APIs with fixture fallback). */
     dataSource: z.enum(["fixture", "live"]).default("fixture"),
-    /** x402 facilitation mode: paper = mock facilitator (no on-chain settlement). */
-    paymentsMode: z.enum(["paper", "live"]).default("paper").refine((mode) => mode === "paper", {
-      message: "paymentsMode=live requires an on-chain facilitator ADR and security sign-off; only paper is enabled",
-    }),
+    /**
+     * x402 facilitation mode.
+     * paper = mock facilitator (signatures trusted, settlement claimed).
+     * live  = base-usdc-facilitator-v1 (see docs/ADR/ADR-003-live-x402-facilitator.md):
+     *          EIP-3009 signatures verified cryptographically and settlement
+     *          confirmed on-chain (receipt + authorizationStates) before any
+     *          API content is unlocked. Live mode requires the strict settled-gate.
+     */
+    paymentsMode: z.enum(["paper", "live"]).default("paper"),
+    /** Public Base JSON-RPC endpoint used by the live facilitator (HTTPS only). */
+    baseRpcUrl: z.string().url().default("https://mainnet.base.org"),
     /** Phase 0: only "mock" is legal. The enum documents the future "readonly" mode. */
     chainAdapterMode: z.enum(["mock", "readonly"]).default("mock").refine(
       (mode) => mode === "mock",
@@ -110,6 +117,7 @@ function pick(env: NodeJS.ProcessEnv) {
     redisUrl: env.REDIS_URL === "" ? undefined : env.REDIS_URL,
     paymentsReceiverAddress: env.PAYMENTS_RECEIVER_ADDRESS,
     paymentsMode: env.PAYMENTS_MODE,
+    baseRpcUrl: env.BASE_RPC_URL,
     dataSource: env.DATA_SOURCE,
     chainAdapterMode: env.CHAIN_ADAPTER_MODE,
     policyMode: env.POLICY_MODE,

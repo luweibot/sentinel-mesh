@@ -55,8 +55,8 @@ export const X402PaymentPayload = z
         to: EvmAddress,
         /** Exact amount in atomic units (must equal the requirement). */
         value: z.string().regex(/^\d+$/),
-        /** EIP-3009 nonce; MUST be globally unique per payer. */
-        nonce: Uuid,
+        /** EIP-3009 nonce: a bytes32 hex value (real x402 clients) or a UUID (paper fixtures). MUST be globally unique per payer. */
+        nonce: z.union([z.string().regex(/^0x[0-9a-fA-F]{64}$/), Uuid]),
         validAfter: IsoDateTime,
         validBefore: IsoDateTime,
         signature: z.string().min(1),
@@ -102,6 +102,8 @@ export const PAYMENT_REJECTION_CODES = [
   "payment-replay",
   "settlement-invalid",
   "settlement-facilitator-not-allowed",
+  "invalid-signature",
+  "settlement-unconfirmed",
   "settlement-mismatch",
   "facilitator-error",
 ] as const;
@@ -124,7 +126,9 @@ export const PaymentRecord = z
     amount: z.string().regex(/^\d+$/),
     status: PaymentRecordStatus,
     rejectionCode: z.enum(PAYMENT_REJECTION_CODES).optional(),
-    nonce: Uuid,
+    nonce: z.union([z.string().regex(/^0x[0-9a-fA-F]{64}$/), Uuid]),
+    /** Payer EOA — required to confirm settlement on-chain. */
+    payer: EvmAddress.optional(),
     facilitatorId: z.string().optional(),
     transactionHash: z.string().optional(),
     grants: z.object({ contentAccess: z.boolean(), trading: z.literal(false) }).strict(),

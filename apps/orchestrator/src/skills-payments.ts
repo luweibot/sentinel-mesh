@@ -1,7 +1,7 @@
 import type { AppConfig } from "@sentinel-mesh/config";
 import type { Logger } from "@sentinel-mesh/logger";
 import { SkillRegistry } from "@sentinel-mesh/skills";
-import { MockFacilitator, PaymentRecordStore, SpendCapLedger, X402PaymentGuard, MOCK_ASSETS } from "@sentinel-mesh/payments";
+import { LiveFacilitator, MockFacilitator, PaymentRecordStore, SpendCapLedger, X402PaymentGuard, MOCK_ASSETS, createHttpRpcCaller, LIVE_FACILITATOR_ID } from "@sentinel-mesh/payments";
 import type { SpendCapStateJournal } from "@sentinel-mesh/orchestrator";
 import type { AgentCapability } from "@sentinel-mesh/contracts";
 
@@ -26,7 +26,7 @@ export interface PaymentsDeps {
 
 export interface PaymentsStack {
   guard: X402PaymentGuard;
-  facilitator: MockFacilitator;
+  facilitator: MockFacilitator | LiveFacilitator;
   /** The spend-cap ledger, exposed for boot-time durable restore. */
   caps: SpendCapLedger;
 }
@@ -70,7 +70,12 @@ export function buildPaymentsStack(
   clock: { now(): Date },
   deps: PaymentsDeps = {},
 ): PaymentsStack {
-  const facilitator = new MockFacilitator(clock);
+  // LIVE mode: signatures are verified cryptographically and settlement is
+  // confirmed on-chain (Base public RPC). PAPER mode: mock facilitator, trust.
+  const facilitator =
+    config.paymentsMode === "live"
+      ? new LiveFacilitator(createHttpRpcCaller(config.baseRpcUrl), clock)
+      : new MockFacilitator(clock);
   const caps = new SpendCapLedger(DEMO_SPEND_CAPS, 5_000, deps.journal);
   // x402 receiver: the project's wallet (config), never the demo fixtures.
   const recipients = [{ address: config.paymentsReceiverAddress, label: "sentinel-mesh project wallet" }];
@@ -79,6 +84,7 @@ export function buildPaymentsStack(
     recipients,
     caps,
     records: new PaymentRecordStore(),
+    facilitator,
     facilitatorIds: [facilitator.facilitatorId],
     clock,
     logger,

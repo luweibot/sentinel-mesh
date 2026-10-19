@@ -16,17 +16,17 @@ import {
 
 const NOW = new Date("2026-04-01T12:00:30.000Z");
 
-function makeGuard(caps: Record<string, number> = { "risk-agent": 10_00 }): { guard: X402PaymentGuard; records: PaymentRecordStore; facilitator: MockFacilitator } {
+function makeGuard(caps: Record<string, number> = { "risk-agent": 10_00 }, facilitator: MockFacilitator = new MockFacilitator({ now: () => NOW })): { guard: X402PaymentGuard; records: PaymentRecordStore; facilitator: MockFacilitator } {
   const sink = new PassThrough();
   sink.resume();
   const logger = createLogger({ service: "payments-test", level: "silent", destination: sink });
   const records = new PaymentRecordStore();
-  const facilitator = new MockFacilitator({ now: () => NOW });
   const guard = new X402PaymentGuard({
     assets: MOCK_ASSETS,
     recipients: MOCK_RECIPIENTS,
     caps: new SpendCapLedger(caps),
     records,
+    facilitator,
     facilitatorIds: [facilitator.facilitatorId],
     clock: { now: () => NOW },
     logger,
@@ -54,7 +54,7 @@ describe("x402 happy path", () => {
     // A payment must not grant trading authority — structurally impossible.
     expect(verdict.record?.grants).toEqual({ contentAccess: true, trading: false });
 
-    const settlement = await guard.verifySettlement(verdict.record!.paymentId, mockSettlement("mock-tx-abc12345"));
+    const settlement = await guard.verifySettlement(verdict.record!.paymentId, { transactionHash: "mock-tx-abc12345" });
     expect(settlement.ok).toBe(true);
     expect(settlement.record?.status).toBe("settled");
     expect(settlement.record?.transactionHash).toBe("mock-tx-abc12345");
@@ -63,7 +63,7 @@ describe("x402 happy path", () => {
   it("is idempotent on the same paymentId", async () => {
     const { guard } = makeGuard();
     const requirement = mockRequirement();
-    const payment = mockPayment({ payTo: requirement.payTo, maxAmountRequired: requirement.maxAmountRequired }, randomUUID());
+    const payment = mockPayment({ payTo: requirement.payTo as string, maxAmountRequired: requirement.maxAmountRequired as string }, randomUUID());
     const request = { agentId: "risk-agent", requirement, payment, paymentId: randomUUID() };
     const first = await guard.process(request);
     const second = await guard.process(request);
@@ -96,7 +96,7 @@ describe("requirement and payload verification", () => {
   it("rejects amount mismatches between payload and requirement", async () => {
     const { guard } = makeGuard();
     const requirement = mockRequirement();
-    const payment = mockPayment({ payTo: requirement.payTo, maxAmountRequired: requirement.maxAmountRequired }, randomUUID(), { value: "2000000" });
+    const payment = mockPayment({ payTo: requirement.payTo as string, maxAmountRequired: requirement.maxAmountRequired as string }, randomUUID(), { value: "2000000" });
     const verdict = await guard.process({ agentId: "risk-agent", requirement, payment, paymentId: randomUUID() });
     expect(verdict.code).toBe("amount-mismatch");
   });
@@ -104,7 +104,7 @@ describe("requirement and payload verification", () => {
   it("rejects expired payment windows", async () => {
     const { guard } = makeGuard();
     const requirement = mockRequirement();
-    const payment = mockPayment({ payTo: requirement.payTo, maxAmountRequired: requirement.maxAmountRequired }, randomUUID(), {
+    const payment = mockPayment({ payTo: requirement.payTo as string, maxAmountRequired: requirement.maxAmountRequired as string }, randomUUID(), {
       validBefore: new Date(Date.parse("2026-04-01T12:00:00.000Z") - 1).toISOString(),
     });
     const verdict = await guard.process({ agentId: "risk-agent", requirement, payment, paymentId: randomUUID() });
@@ -120,7 +120,7 @@ describe("requirement and payload verification", () => {
   it("rejects unknown x402 versions in payloads", async () => {
     const { guard } = makeGuard();
     const requirement = mockRequirement();
-    const payment = mockPayment({ payTo: requirement.payTo, maxAmountRequired: requirement.maxAmountRequired }, randomUUID(), {});
+    const payment = mockPayment({ payTo: requirement.payTo as string, maxAmountRequired: requirement.maxAmountRequired as string }, randomUUID(), {});
     (payment as Record<string, unknown>).x402Version = "2";
     const verdict = await guard.process({ agentId: "risk-agent", requirement, payment, paymentId: randomUUID() });
     expect(verdict.code).toBe("unsupported-scheme");
@@ -139,7 +139,7 @@ describe("replay resistance", () => {
   it("the mock facilitator also refuses to settle the same nonce twice", async () => {
     const { facilitator } = makeGuard();
     const requirement = mockRequirement();
-    const payment = mockPayment({ payTo: requirement.payTo, maxAmountRequired: requirement.maxAmountRequired }, randomUUID());
+    const payment = mockPayment({ payTo: requirement.payTo as string, maxAmountRequired: requirement.maxAmountRequired as string }, randomUUID());
     const first = await facilitator.verifyAndSettle({ requirement, payment });
     const second = await facilitator.verifyAndSettle({ requirement, payment });
     expect(first.payload.success).toBe(true);
@@ -160,28 +160,66 @@ describe("spend caps", () => {
 
 describe("settlement evidence", () => {
   it("rejects settlement evidence from a non-allowlisted facilitator", async () => {
-    const { guard } = makeGuard();
+    // The facilitator instance is allowlisted, but it produces evidence
+    // stamped with a DIFFERENT (non-allowlisted) facilitator id — the
+    // guard must reject that evidence.
+    const rogue = new MockFacilitator({ now: () => NOW });
+    const originalConfirm = rogue.confirmSettlement.bind(rogue);
+    rogue.confirmSettlement = async (input: { transactionHash: string }) => {
+      const evidence = await originalConfirm(input);
+      return { ...evidence, facilitatorId: "rogue-facilitator" };
+    };
+    const { guard } = makeGuard(undefined, rogue);
     const verdict = await happyPayment(guard);
-    const rogue = mockSettlement("mock-tx-rogue", { facilitatorId: "rogue-facilitator" });
-    const settlement = await guard.verifySettlement(verdict.record!.paymentId, rogue);
+    const settlement = await guard.verifySettlement(verdict.record!.paymentId, { transactionHash: "0xrogue" });
     expect(settlement.code).toBe("settlement-facilitator-not-allowed");
   });
 
   it("rejects settlement evidence on the wrong chain", async () => {
-    const { guard } = makeGuard();
+    const wrongChain = new MockFacilitator({ now: () => NOW });
+    const original = wrongChain.confirmSettlement.bind(wrongChain);
+    wrongChain.confirmSettlement = async (input: { transactionHash: string }) => {
+      const evidence = await original(input);
+      return { ...evidence, network: 1 };
+    };
+    const { guard } = makeGuard(undefined, wrongChain);
     const verdict = await happyPayment(guard);
-    const wrongChain = mockSettlement("mock-tx-wrong", { network: 1 });
-    const settlement = await guard.verifySettlement(verdict.record!.paymentId, wrongChain);
+    const settlement = await guard.verifySettlement(verdict.record!.paymentId, { transactionHash: "0xwrongchain" });
     expect(settlement.code).toBe("settlement-mismatch");
   });
 
-  it("rejects failed facilitator settlements", async () => {
-    const { guard } = makeGuard();
+  it("rejects failed facilitator confirmations", async () => {
+    const failing = new MockFacilitator({ now: () => NOW });
+    failing.confirmSettlement = async () => ({
+      scheme: "exactInEvm",
+      network: 8453,
+      payload: { success: false, error: { code: "reverted", message: "simulated revert" } },
+      facilitatorId: failing.facilitatorId,
+      settledAt: NOW.toISOString(),
+    });
+    const { guard } = makeGuard(undefined, failing);
     const verdict = await happyPayment(guard);
-    const failed = mockSettlement("", { payload: { success: false, error: { code: "reverted", message: "simulated revert" } } });
-    const settlement = await guard.verifySettlement(verdict.record!.paymentId, failed);
+    const settlement = await guard.verifySettlement(verdict.record!.paymentId, { transactionHash: "0xfailed" });
     expect(settlement.ok).toBe(false);
     expect(settlement.code).toBe("facilitator-error");
+  });
+
+  it("rejects settlement without a transaction hash", async () => {
+    const { guard } = makeGuard();
+    const verdict = await happyPayment(guard);
+    const settlement = await guard.verifySettlement(verdict.record!.paymentId, {});
+    expect(settlement.ok).toBe(false);
+    expect(settlement.code).toBe("settlement-mismatch");
+  });
+
+  it("replays settlement idempotently", async () => {
+    const { guard } = makeGuard();
+    const verdict = await happyPayment(guard);
+    const first = await guard.verifySettlement(verdict.record!.paymentId, { transactionHash: "mock-tx-once" });
+    const second = await guard.verifySettlement(verdict.record!.paymentId, { transactionHash: "mock-tx-once" });
+    expect(first.ok).toBe(true);
+    expect(second.ok).toBe(true);
+    expect(second.message).toContain("idempotent");
   });
 });
 
@@ -201,7 +239,7 @@ describe("reconciliation", () => {
   it("reports consistent for a clean ledger", async () => {
     const { guard } = makeGuard();
     const verdict = await happyPayment(guard);
-    await guard.verifySettlement(verdict.record!.paymentId, mockSettlement("mock-tx-clean0001"));
+    await guard.verifySettlement(verdict.record!.paymentId, { transactionHash: "mock-tx-clean0001" });
     expect(guard.reconcile().consistent).toBe(true);
   });
 });
@@ -210,7 +248,7 @@ describe("payments cannot grant trading authority", () => {
   it("every grant shape hard-codes trading: false", async () => {
     const { guard } = makeGuard();
     const verdict = await happyPayment(guard);
-    const settled = await guard.verifySettlement(verdict.record!.paymentId, mockSettlement("mock-tx-grant0001"));
+    const settled = await guard.verifySettlement(verdict.record!.paymentId, { transactionHash: "mock-tx-grant0001" });
     expect(verdict.record?.grants.trading).toBe(false);
     expect(settled.record?.grants.trading).toBe(false);
     // And rejected records grant nothing at all.

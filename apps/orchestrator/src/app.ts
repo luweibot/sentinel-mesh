@@ -479,9 +479,16 @@ export function buildApp(deps: AppDeps): FastifyInstance {
       const paymentId = (request.headers["x-payments"] ?? "") as string;
       if (paymentId) {
         const record = payments.guard.list().find((r) => r.paymentId === paymentId);
+        // LIVE mode requires the payment to be SETTLED on-chain (the
+        // facilitator confirmed receipt). PAPER mode accepts recorded
+        // payments (mock settlement) for local development and tests.
+        const statusOk =
+          deps.config.paymentsMode === "live"
+            ? record?.status === "settled"
+            : record?.status === "settled" || record?.status === "recorded";
         const ok =
           record !== undefined &&
-          (record.status === "settled" || record.status === "recorded") &&
+          statusOk &&
           record.grants.contentAccess === true &&
           record.amount === service.amountAtomic &&
           record.payTo.toLowerCase() === receiver.toLowerCase();
@@ -549,12 +556,12 @@ export function buildApp(deps: AppDeps): FastifyInstance {
 
     /** Submit settlement evidence for a recorded payment. */
     app.post("/api/v1/payments/settle", async (request, reply) => {
-      const body = request.body as { paymentId?: string; settlement?: unknown };
+      const body = request.body as { paymentId?: string; transactionHash?: string };
       if (!body.paymentId) {
         reply.code(400).send({ error: "VALIDATION_FAILED", message: "paymentId is required" });
         return;
       }
-      const verdict = await payments.guard.verifySettlement(body.paymentId, body.settlement);
+      const verdict = await payments.guard.verifySettlement(body.paymentId, { transactionHash: body.transactionHash });
       reply.code(verdict.ok ? 200 : 422).send(verdict);
     });
   }
