@@ -11,13 +11,13 @@ export const TOKEN = {
   symbol: "MESH",
   chain: "Base",
   chainId: 8453,
-  /** Contract address — published at launch. */
-  address: "" as string,
-  /** Uniswap V4 pool (MESH/WETH) address — published at launch. */
+  /** Contract address — verified on-chain at launch (block 52803550). */
+  address: "0x8d9E380dD74897c6b51A53fde12B89F937c62BA3",
+  /** MESH/WETH pool — Uniswap V4, created at launch via Doppler. */
   poolAddress: "" as string,
   logoUrl:
     "https://media.base44.com/images/public/6a6e415774ed6f04724d8024/6e2175eb3_generated_image.png",
-  website: "https://luweibot.github.io/sentinel-mesh",
+  website: "https://sentinel-mesh-phi.vercel.app",
   launchpad: "Bankr (https://bankr.bot)",
   standard: "ERC-20, fixed supply, non-mintable",
   supply: "100,000,000,000 (100 billion, fixed)",
@@ -34,9 +34,10 @@ export const TOKEN = {
     { recipient: "Doppler protocol", share: "~0.0875%", detail: "Launch infrastructure" },
   ],
   utility: [
+    "Primary economics token: rewards back to Sentinel Mesh users and agents",
+    "Planned 'DeFAI Agentic Dex' dapp: instant cashback and trading-leaderboard rewards",
+    "Stake $MESH to earn more $MESH (staking program planned)",
+    "Accepted payment asset for Sentinel Mesh API services and x402 machine payments",
     "Pay trading fees on the upcoming Sentinex terminal at a discount",
-    "Accepted asset for x402 machine payments on the Sentinel Mesh API",
-    "Instant cashback asset for Base trades (BasedBot-style, 30% of fees back)",
-    "Roadmap signal votes on which markets and features ship next",
   ],
 } as const;
