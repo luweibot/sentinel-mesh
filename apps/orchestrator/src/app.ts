@@ -258,21 +258,23 @@ export function buildApp(deps: AppDeps): FastifyInstance {
     app.post("/api/v1/execution/kill-switch", async (request, reply) => {
       const body = request.body as { scope?: string; id?: string; state?: string };
       const scope = body.scope ?? "global";
+      if (scope !== "global" && scope !== "user" && scope !== "strategy") {
+        reply.code(400).send({ error: "VALIDATION_FAILED", message: "scope must be global|user|strategy" });
+        return;
+      }
       const state = body.state as "clear" | "engaged" | "unknown";
       if (!["clear", "engaged", "unknown"].includes(state)) {
         reply.code(400).send({ error: "VALIDATION_FAILED", message: "state must be clear|engaged|unknown" });
         return;
       }
-      if (scope === "global") {
-        execution.killSwitch.setGlobal(state);
-      } else if (scope === "user" && body.id) {
-        execution.killSwitch.setUser(body.id, state);
-      } else if (scope === "strategy" && body.id) {
-        execution.killSwitch.setStrategy(body.id, state);
-      } else {
+      if (scope !== "global" && !body.id) {
         reply.code(400).send({ error: "VALIDATION_FAILED", message: "scope user|strategy requires id" });
         return;
       }
+      // SECURITY (audit 2026-10-19): durable set — the state is journaled
+      // (when storage is wired) BEFORE it is applied, so a restart can
+      // never lose an ENGAGED switch.
+      await execution.setKillSwitch(scope, body.id ?? null, state);
       reply.code(200).send({ scope, id: body.id ?? null, state });
     });
   }

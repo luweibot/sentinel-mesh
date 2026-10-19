@@ -25,6 +25,7 @@
     "@sentinel-mesh/agent-sdk": "workspace:*",
     "@sentinel-mesh/contracts": "workspace:*",
     "@sentinel-mesh/database": "workspace:*",
+    "@sentinel-mesh/execution": "workspace:*",
     "@sentinel-mesh/logger": "workspace:*",
     "@sentinel-mesh/queue": "workspace:*",
     "zod": "^3.23.8"

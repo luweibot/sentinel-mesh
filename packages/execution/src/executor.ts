@@ -17,6 +17,7 @@ import {
   MockSolanaTradeAdapter,
 } from "@sentinel-mesh/chain-adapters";
 import { AuthorizationService, ExecutionRejectedError, intentHash, type Clock } from "./authorization.js";
+import type { GuardStateJournal } from "./journal.js";
 import { IdempotencyRegistry, KillSwitch, ReconciliationLedger } from "./safety.js";
 import { LimitsService } from "./limits.js";
 import type { LiquidityProvider } from "@sentinel-mesh/chain-data";
@@ -69,6 +70,12 @@ export interface GuardedExecutorDeps {
   /** Rough notional estimate for limit checks, in USD cents per intent. */
   notionalUsdCentsFor: (intent: TradeIntent) => number;
   mode: ExecutionModeConfig;
+  /**
+   * Durable guard-state journal (audit 2026-10-19). Absent in the pure
+   * in-memory dev mode; when present, commit points are journaled before
+   * receipts are returned and state is restored at boot.
+   */
+  journal?: GuardStateJournal;
 }
 
 /**
@@ -97,12 +104,12 @@ export class GuardedExecutionService implements ExecutionPort {
     try {
       TradeIntent.parse(intent);
     } catch (error) {
-      return this.reject(intent, authorization, "invalid-authorization", `intent failed schema validation: ${String(error)}`, decidedAt);
+      return await this.reject(intent, authorization, "invalid-authorization", `intent failed schema validation: ${String(error)}`, decidedAt);
     }
 
     // Fail closed when execution is not explicitly enabled as paper.
     if (this.deps.mode.mode !== "paper") {
-      return this.reject(intent, authorization, "execution-disabled", "guarded execution is disabled; only the paper mode may execute", decidedAt);
+      return await this.reject(intent, authorization, "execution-disabled", "guarded execution is disabled; only the paper mode may execute", decidedAt);
     }
 
     try {
@@ -129,7 +136,7 @@ export class GuardedExecutionService implements ExecutionPort {
       // reservation happen in one synchronous step so two concurrent intents
       // cannot both pass the caps before either is recorded.
       const notionalUsdCents = this.deps.notionalUsdCentsFor(intent);
-      reservedFillId = this.deps.limits.evaluateAndReserve(intent, notionalUsdCents);
+      reservedFillId = await this.deps.limits.evaluateAndReserve(intent, notionalUsdCents);
 
       // 6. liquidity clearance (fail closed when no source is wired)
       await this.checkLiquidity(intent);
@@ -182,6 +189,14 @@ export class GuardedExecutionService implements ExecutionPort {
       };
       this.deps.ledger.record(receipt);
       this.deps.idempotency.complete(intent.intentId, hash, receipt.receiptId);
+      // SECURITY (audit 2026-10-19): the receipt AND its idempotency entry
+      // are journaled atomically BEFORE the receipt is returned, so a
+      // crash after this point can never lose a completed execution. On
+      // restore, the recorded entry replays this receipt instead of
+      // allowing a second execution.
+      if (this.deps.journal) {
+        await this.deps.journal.recordCommit(receipt, { intentId: intent.intentId, intentHash: hash, receiptId: receipt.receiptId });
+      }
       this.deps.logger.info({ intentId: intent.intentId, receiptId: receipt.receiptId, chain: intent.chain }, "execution_paper_filled");
       return receipt;
     } catch (error) {
@@ -189,7 +204,9 @@ export class GuardedExecutionService implements ExecutionPort {
       // pipeline got past limits) so rejected intents do not permanently
       // consume cap space.
       if (reservedFillId !== null) {
-        this.deps.limits.releaseReservation(reservedFillId);
+        const fillId = reservedFillId;
+        reservedFillId = null;
+        await this.deps.limits.releaseReservation(fillId);
       }
       if (error instanceof ExecutionRejectedError) {
         // SECURITY (audit 2026-10-18): a duplicate-in-flight rejection must
@@ -198,12 +215,14 @@ export class GuardedExecutionService implements ExecutionPort {
         // identical submission execute the intent a second time.
         if (error.code !== "duplicate-submission-conflict") {
           this.deps.idempotency.abort(intent.intentId, intentHash(intent));
+          await this.deps.journal?.recordAbort(intent.intentId);
         }
-        return this.reject(intent, authorization, error.code, error.message, decidedAt);
+        return await this.reject(intent, authorization, error.code, error.message, decidedAt);
       }
       // Unknown errors are also fail closed, with the generic guard code.
       this.deps.idempotency.abort(intent.intentId, intentHash(intent));
-      return this.reject(intent, authorization, "policy-error", `unexpected guard pipeline failure: ${String(error)}`, decidedAt);
+      await this.deps.journal?.recordAbort(intent.intentId);
+      return await this.reject(intent, authorization, "policy-error", `unexpected guard pipeline failure: ${String(error)}`, decidedAt);
     }
   }
 
@@ -294,13 +313,13 @@ export class GuardedExecutionService implements ExecutionPort {
     throw new ExecutionRejectedError("adapter-validation-failed", `no transaction validator registered for chain '${intent.chain}'`);
   }
 
-  private reject(
+  private async reject(
     intent: TradeIntent,
     authorization: TradeAuthorization | undefined,
     code: RejectionCode,
     detail: string,
     decidedAt: string,
-  ): ExecutionReceipt {
+  ): Promise<ExecutionReceipt> {
     const receipt: ExecutionReceipt = {
       schemaVersion: 1,
       receiptId: randomUUID(),
@@ -315,6 +334,11 @@ export class GuardedExecutionService implements ExecutionPort {
     };
     this.deps.ledger.record(receipt);
     this.deps.logger.warn({ intentId: intent.intentId, code }, "execution_rejected");
+    // SECURITY (audit 2026-10-19): rejection receipts are journaled too, so
+    // the restored ledger keeps the complete audit trail after a restart.
+    if (this.deps.journal) {
+      await this.deps.journal.recordRejection(receipt);
+    }
     return receipt;
   }
 }

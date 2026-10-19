@@ -404,6 +404,9 @@ importers:
       '@sentinel-mesh/database':
         specifier: workspace:*
         version: link:../database
+      '@sentinel-mesh/execution':
+        specifier: workspace:*
+        version: link:../execution
       '@sentinel-mesh/logger':
         specifier: workspace:*
         version: link:../logger

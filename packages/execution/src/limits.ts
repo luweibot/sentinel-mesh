@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { RejectionCode, TradeIntent } from "@sentinel-mesh/contracts";
 import { ExecutionRejectedError } from "./authorization.js";
+import type { GuardStateJournal, RestoredFill } from "./journal.js";
 
 /**
  * Per-user and per-strategy limits: trade size caps, open position caps,
@@ -92,6 +93,17 @@ export class InMemoryLimitStore implements LimitStore {
   seed(input: { userId: string; strategyId: string; chain: string; notionalUsdCents: number; pnlUsdCents: number; day?: string }): void {
     this.recordFill({ ...input, day: input.day ?? this.today() });
   }
+
+  /**
+   * SECURITY (audit 2026-10-19): boot-time restore from the durable
+   * journal. Restored fills count against the caps exactly as live ones
+   * do, so a restart cannot reset trade/position/exposure/loss state.
+   */
+  restore(fills: RestoredFill[]): void {
+    for (const fill of fills) {
+      this.fills.push({ ...fill });
+    }
+  }
 }
 
 export interface LimitPolicySource {
@@ -130,6 +142,8 @@ export class LimitsService {
     private readonly policies: LimitPolicySource,
     private readonly store: LimitStore,
     private readonly clock: { now(): Date },
+    /** Durable journal; absent in the pure in-memory dev mode. */
+    private readonly journal?: GuardStateJournal,
   ) {}
 
   evaluate(intent: TradeIntent, notionalUsdCents: number): void {
@@ -188,15 +202,36 @@ export class LimitsService {
    * one synchronous step, so concurrent intents cannot both pass the caps
    * before either is recorded (check-then-act race). The caller releases
    * the reservation via releaseReservation() when a later guard rejects.
+   *
+   * SECURITY (audit 2026-10-19): when a durable journal is wired, the
+   * in-memory reservation (still synchronous, still race-safe) is
+   * journaled before the fill id is returned, so a restart restores the
+   * reservation. Residual, documented risk: a crash in the sub-second
+   * window between the in-memory insert and the journal write under-counts
+   * the caps after restore (paper-safe direction).
    */
-  evaluateAndReserve(intent: TradeIntent, notionalUsdCents: number): string {
+  async evaluateAndReserve(intent: TradeIntent, notionalUsdCents: number): Promise<string> {
     this.evaluate(intent, notionalUsdCents);
-    return this.recordFill(intent, notionalUsdCents);
+    const fillId = this.recordFill(intent, notionalUsdCents);
+    if (this.journal) {
+      const day = this.clock.now().toISOString().slice(0, 10);
+      await this.journal.recordFill({
+        fillId,
+        userId: intent.userId,
+        strategyId: intent.strategyId,
+        chain: intent.chain,
+        notionalUsdCents,
+        pnlUsdCents: 0,
+        day,
+      });
+    }
+    return fillId;
   }
 
   /** Release a reservation taken by evaluateAndReserve. */
-  releaseReservation(fillId: string): void {
+  async releaseReservation(fillId: string): Promise<void> {
     this.store.removeFill(fillId);
+    await this.journal?.releaseFill(fillId);
   }
 }
 

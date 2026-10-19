@@ -63,6 +63,18 @@ export class IdempotencyRegistry {
   lookup(intentId: string): LedgerEntry | undefined {
     return this.ledger.get(intentId);
   }
+
+  /**
+   * SECURITY (audit 2026-10-19): boot-time restore from the durable
+   * journal. Only RECORDED entries are restored; in-flight entries from a
+   * dead process are dropped on purpose — no receipt exists for them, so
+   * resubmission is correct and cannot double-execute.
+   */
+  restore(entries: { intentId: string; intentHash: string; receiptId: string }[]): void {
+    for (const entry of entries) {
+      this.ledger.set(entry.intentId, { status: "recorded", intentHash: entry.intentHash, receiptId: entry.receiptId });
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -89,6 +101,25 @@ export class KillSwitch {
 
   setStrategy(strategyId: string, state: "clear" | "engaged" | "unknown"): void {
     this.strategySwitches.set(strategyId, state);
+  }
+
+  /**
+   * SECURITY (audit 2026-10-19): boot-time restore from the durable
+   * journal. A restored state REPLACES the in-memory default, so an
+   * ENGAGED switch cannot be lost to a restart. A missing 'global' row is
+   * NOT restored as clear: the in-memory default stays "unknown" and
+   * execution fails closed until an operator clears the switch.
+   */
+  restore(states: { scope: string; state: "clear" | "engaged" | "unknown" }[]): void {
+    for (const { scope, state } of states) {
+      if (scope === "global") {
+        this.global.set("global", state);
+      } else if (scope.startsWith("user:")) {
+        this.userSwitches.set(scope.slice("user:".length), state);
+      } else if (scope.startsWith("strategy:")) {
+        this.strategySwitches.set(scope.slice("strategy:".length), state);
+      }
+    }
   }
 
   /** Read-only snapshot for the dashboard; nothing mutable escapes. */
@@ -154,6 +185,17 @@ export class ReconciliationLedger {
 
   receiptsForIntent(intentId: string): ExecutionReceipt[] {
     return [...this.receipts.values()].filter((receipt) => receipt.intentId === intentId);
+  }
+
+  /**
+   * SECURITY (audit 2026-10-19): boot-time restore of the paper journal
+   * from the durable store, so receipt replay and reconciliation keep
+   * working across a restart.
+   */
+  restore(receipts: ExecutionReceipt[]): void {
+    for (const receipt of receipts) {
+      this.record(receipt);
+    }
   }
 
   all(): ExecutionReceipt[] {

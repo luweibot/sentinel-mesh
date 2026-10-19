@@ -2,6 +2,7 @@ import type { AppConfig } from "@sentinel-mesh/config";
 import type { Logger } from "@sentinel-mesh/logger";
 import { SkillRegistry } from "@sentinel-mesh/skills";
 import { MockFacilitator, PaymentRecordStore, SpendCapLedger, X402PaymentGuard, MOCK_ASSETS, MOCK_RECIPIENTS } from "@sentinel-mesh/payments";
+import type { SpendCapStateJournal } from "@sentinel-mesh/orchestrator";
 import type { AgentCapability } from "@sentinel-mesh/contracts";
 
 /**
@@ -18,9 +19,16 @@ export interface SkillsStack {
   registry: SkillRegistry;
 }
 
+/** Durable spend-cap journal (optional; absent in dev mode). */
+export interface PaymentsDeps {
+  journal?: SpendCapStateJournal;
+}
+
 export interface PaymentsStack {
   guard: X402PaymentGuard;
   facilitator: MockFacilitator;
+  /** The spend-cap ledger, exposed for boot-time durable restore. */
+  caps: SpendCapLedger;
 }
 
 /**
@@ -56,17 +64,23 @@ const DEMO_SPEND_CAPS: Record<string, number> = {
   "whale-tracking-agent": 1_000,
 };
 
-export function buildPaymentsStack(config: AppConfig, logger: Logger, clock: { now(): Date }): PaymentsStack {
+export function buildPaymentsStack(
+  config: AppConfig,
+  logger: Logger,
+  clock: { now(): Date },
+  deps: PaymentsDeps = {},
+): PaymentsStack {
   void config;
   const facilitator = new MockFacilitator(clock);
+  const caps = new SpendCapLedger(DEMO_SPEND_CAPS, deps.journal);
   const guard = new X402PaymentGuard({
     assets: MOCK_ASSETS,
     recipients: MOCK_RECIPIENTS,
-    caps: new SpendCapLedger(DEMO_SPEND_CAPS),
+    caps,
     records: new PaymentRecordStore(),
     facilitatorIds: [facilitator.facilitatorId],
     clock,
     logger,
   });
-  return { guard, facilitator };
+  return { guard, facilitator, caps };
 }

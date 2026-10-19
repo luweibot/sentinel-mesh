@@ -14,7 +14,8 @@ import {
   PgProcessedEvents,
 } from "@sentinel-mesh/orchestrator";
 import { registerAllAgents } from "@sentinel-mesh/agents";
-import { buildExecutionStack } from "./execution.js";
+import { PgGuardStateJournal, PgSpendCapJournal } from "@sentinel-mesh/orchestrator";
+import { buildExecutionStack, restoreGuardState } from "./execution.js";
 import { buildSkillsStack, buildPaymentsStack } from "./skills-payments.js";
 import { createPool } from "@sentinel-mesh/database";
 import { buildApp } from "./app.js";
@@ -51,10 +52,24 @@ async function main(): Promise<void> {
     clock,
     logger,
   });
-  const execution = buildExecutionStack(config, logger, clock);
+  // SECURITY (audit 2026-10-19): durable guard journal when Postgres is
+  // wired; guard state restores at boot BEFORE the server listens, so a
+  // sleeping/restarted instance keeps idempotency, caps, kill switch and
+  // the receipt ledger.
+  const guardJournal = pool ? new PgGuardStateJournal(pool) : undefined;
+  const spendCapJournal = pool ? new PgSpendCapJournal(pool, (error) => logger.error({ err: String(error) }, "spend_cap_journal_write_failed")) : undefined;
+
+  const execution = buildExecutionStack(config, logger, clock, { journal: guardJournal });
   registerAllAgents(engine, execution.port);
   const skills = buildSkillsStack(config, logger, clock).registry;
-  const payments = buildPaymentsStack(config, logger, clock);
+  const payments = buildPaymentsStack(config, logger, clock, { journal: spendCapJournal });
+
+  if (guardJournal) {
+    const snapshot = await guardJournal.restore();
+    await restoreGuardState(snapshot, execution, logger);
+    // x402 spend-cap utilization restores before traffic flows.
+    payments.caps.restore(await spendCapJournal!.restore());
+  }
 
   const app = buildApp({
     config,

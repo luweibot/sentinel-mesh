@@ -18,3 +18,5 @@ export { InMemoryProcessedEvents, PgProcessedEvents, wrapIdempotent } from "./id
 export type { ProcessedEventStore } from "./idempotency.js";
 export { BudgetLedger } from "./budget.js";
 export type { BudgetLimits } from "./budget.js";
+export { PgGuardStateJournal, PgSpendCapJournal } from "./pg-guard-journal.js";
+export type { SpendCapStateJournal } from "./pg-guard-journal.js";

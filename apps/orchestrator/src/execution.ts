@@ -18,6 +18,7 @@ import {
   type ExecutionPort,
 } from "@sentinel-mesh/execution";
 import type { TradeIntent } from "@sentinel-mesh/contracts";
+import type { GuardStateJournal, GuardStateSnapshot, KillSwitchState } from "@sentinel-mesh/execution";
 
 /**
  * Dev-environment execution wiring.
@@ -42,13 +43,37 @@ export interface ExecutionStack {
   ledger: ReconciliationLedger;
   /** Intent ids that were submitted to the executor, for reconciliation. */
   submittedIntentIds: Set<string>;
+  /** Durably set a kill-switch scope (journal-first), when a journal is wired. */
+  setKillSwitch(scope: "global" | "user" | "strategy", id: string | null, state: KillSwitchState): Promise<void>;
 }
 
-export function buildExecutionStack(config: AppConfig, logger: Logger, clock: { now(): Date }): ExecutionStack {
+export interface BuildExecutionDeps {
+  /**
+   * Durable guard-state journal (audit 2026-10-19). When present:
+   *  - commit points are journaled (receipts, idempotency, fills)
+   *  - the kill switch does NOT auto-clear at boot: a missing durable
+   *    'global' row stays UNKNOWN and execution fails closed until an
+   *    operator clears it
+   *  - boot restore is available via restoreGuardState()
+   */
+  journal?: GuardStateJournal;
+}
+
+export function buildExecutionStack(
+  config: AppConfig,
+  logger: Logger,
+  clock: { now(): Date },
+  deps: BuildExecutionDeps = {},
+): ExecutionStack {
   const killSwitch = new KillSwitch();
-  // Explicitly clear for the dev environment; ops can engage/unknown it via
-  // the kill-switch endpoint at any time.
-  killSwitch.setGlobal("clear");
+  // SECURITY (audit 2026-10-19): auto-clear ONLY in pure in-memory dev
+  // mode. With a durable journal the switch restores from storage and a
+  // missing 'global' row stays "unknown" (fail closed) — an ENGAGED switch
+  // can never be lost to a restart, and every fresh deploy requires an
+  // explicit operator clear.
+  if (!deps.journal) {
+    killSwitch.setGlobal("clear");
+  }
 
   const policies = new StaticLimitPolicySource();
   // Demo caps (USD cents): $5k/trade, 20 trades/day, $20k open position,
@@ -69,14 +94,16 @@ export function buildExecutionStack(config: AppConfig, logger: Logger, clock: { 
   policies.setStrategyLimits(DEMO_STRATEGY, { maxTradeUsdCents: 400_000, maxTradesPerDay: 15 });
 
   const ledger = new ReconciliationLedger();
+  const idempotency = new IdempotencyRegistry();
+  const limitStore = new InMemoryLimitStore(clock);
   // ONE authorization service shared by the minting endpoint and the
   // executor: consume() verifies against this store.
   const authorizations = new AuthorizationService(new InMemoryAuthorizationStore(), clock);
   const executor = new GuardedExecutionService({
     authorizationService: authorizations,
-    idempotency: new IdempotencyRegistry(),
+    idempotency,
     killSwitch,
-    limits: new LimitsService(policies, new InMemoryLimitStore(clock), clock),
+    limits: new LimitsService(policies, limitStore, clock, deps.journal),
     ledger,
     policyEngine: new DeterministicPolicyEngine({
       policyVersion: "1.0.0",
@@ -95,7 +122,26 @@ export function buildExecutionStack(config: AppConfig, logger: Logger, clock: { 
     // Deterministic dev notional estimate: 1c per 10^6 base units.
     notionalUsdCentsFor: (intent: TradeIntent) => Math.ceil(Number(BigInt(intent.amountInRaw) / 10n ** 6n)),
     mode: { mode: config.executionMode === "paper" ? "paper" : "disabled" },
+    journal: deps.journal,
   });
+
+  const journal = deps.journal;
+  const setKillSwitch = async (scope: "global" | "user" | "strategy", id: string | null, state: KillSwitchState): Promise<void> => {
+    if (journal) {
+      // Journal FIRST: a failed write never silently drops an ENGAGED
+      // state, and a crash between the write and the memory set can only
+      // lag the (older, fail-closed-safe) in-memory state by one request.
+      const journalScope = scope === "global" ? "global" : `${scope}:${id}`;
+      await journal.recordKillSwitch(journalScope, state);
+    }
+    if (scope === "global") {
+      killSwitch.setGlobal(state);
+    } else if (scope === "user" && id) {
+      killSwitch.setUser(id, state);
+    } else {
+      killSwitch.setStrategy(id as string, state);
+    }
+  };
 
   const stack: ExecutionStack = {
     executor,
@@ -104,8 +150,48 @@ export function buildExecutionStack(config: AppConfig, logger: Logger, clock: { 
     killSwitch,
     ledger,
     submittedIntentIds: new Set(),
+    setKillSwitch,
   };
+  // Kept for restoreGuardState(); the stores are the same objects the
+  // executor holds.
+  (stack as ExecutionStack & { idempotency: IdempotencyRegistry; limitStore: InMemoryLimitStore }).idempotency = idempotency;
+  (stack as ExecutionStack & { idempotency: IdempotencyRegistry; limitStore: InMemoryLimitStore }).limitStore = limitStore;
   return stack;
+}
+
+/**
+ * SECURITY (audit 2026-10-19): boot-time restore of durable guard state.
+ * MUST run before the server accepts traffic. Rebuilds:
+ *  - the reconciliation ledger (receipts, incl. rejections)
+ *  - the idempotency registry (recorded entries replay their receipts;
+ *    in-flight entries were already dropped by the journal's restore())
+ *  - limit-store fills (trade/position/exposure/loss caps keep counting)
+ *  - kill-switch states (an ENGAGED switch survives; a missing global row
+ *    stays unknown = fail closed)
+ *  - submitted intent ids (reconciliation coverage after restart)
+ */
+export async function restoreGuardState(
+  snapshot: GuardStateSnapshot,
+  stack: ExecutionStack,
+  logger: Logger,
+): Promise<void> {
+  stack.ledger.restore(snapshot.receipts);
+  const internal = stack as ExecutionStack & { idempotency: IdempotencyRegistry; limitStore: InMemoryLimitStore };
+  internal.idempotency.restore(snapshot.idempotency);
+  internal.limitStore.restore(snapshot.fills);
+  stack.killSwitch.restore(snapshot.killSwitch);
+  for (const entry of snapshot.idempotency) {
+    stack.submittedIntentIds.add(entry.intentId);
+  }
+  logger.info(
+    {
+      receipts: snapshot.receipts.length,
+      idempotency: snapshot.idempotency.length,
+      fills: snapshot.fills.length,
+      killSwitch: snapshot.killSwitch.length,
+    },
+    "guard_state_restored",
+  );
 }
 
 export function hashDemoIntent(intent: TradeIntent): string {
