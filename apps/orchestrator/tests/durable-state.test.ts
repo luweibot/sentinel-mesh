@@ -239,6 +239,27 @@ describe("durable guard state across a restart (sleep/wake)", () => {
     expect(ok.status).toBe("paper-filled");
   });
 
+  it("fails CLOSED when the registry recorded an intent but its receipt is missing after a restore", async () => {
+    const journal = new FakeGuardStateJournal();
+    const before = await boot(journal);
+    await before.setKillSwitch("global", null, "clear");
+    const intent = freshIntent();
+    const first = await execute(before, intent);
+    expect(first.status).toBe("paper-filled");
+
+    // simulate a partial restore: the idempotency entry survives but the
+    // receipt row was lost (the exact corruption the executor must not
+    // turn into a second execution)
+    journal.receipts.clear();
+    const after = await boot(journal);
+    const replay = await execute(after, intent);
+    expect(replay.status).toBe("rejected");
+    expect(replay.rejectionCode).toBe("duplicate-submission-conflict");
+    // and nothing re-executed: no paper fill in the new ledger
+    const fills = (await after.executor.receiptsForIntent(intent.intentId)).filter((r) => r.status === "paper-filled");
+    expect(fills).toHaveLength(0);
+  });
+
   it("an in-flight intent from a dead process is dropped on restore, not stuck forever", async () => {
     const journal = new FakeGuardStateJournal();
     // simulate a crash between begin() and complete(): an in-flight entry

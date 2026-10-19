@@ -124,6 +124,14 @@ export class GuardedExecutionService implements ExecutionPort {
         if (prior) {
           return prior; // duplicate submission -> replay the original receipt
         }
+        // SECURITY (audit 2026-10-19): the registry recorded this intent as
+        // completed but its receipt is not in the ledger (partial restore
+        // or ledger corruption). FAIL CLOSED: never re-execute an intent
+        // the registry says already completed.
+        throw new ExecutionRejectedError(
+          "duplicate-submission-conflict",
+          `intent ${intent.intentId} is recorded as executed but its receipt is missing from the ledger; failing closed`,
+        );
       }
 
       // 3. policy engine (independent decisionmaker)

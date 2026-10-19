@@ -1,5 +1,5 @@
 import type { QueryExecutor } from "@sentinel-mesh/database";
-import type { ExecutionReceipt } from "@sentinel-mesh/contracts";
+import { ExecutionReceipt } from "@sentinel-mesh/contracts";
 import type {
   GuardStateJournal,
   GuardStateSnapshot,
@@ -78,7 +78,11 @@ export class PgGuardStateJournal implements GuardStateJournal {
       receipts: (receipts.rows as ReadonlyArray<Record<string, unknown>>)
         .map((row) => {
           try {
-            return JSON.parse(String(row["payload"])) as ExecutionReceipt;
+            // pg returns jsonb columns as PARSED objects; the string path
+            // covers fakes and string-typed payloads.
+            const raw = row["payload"];
+            const receipt = typeof raw === "string" ? (JSON.parse(raw) as unknown) : raw;
+            return ExecutionReceipt.parse(receipt);
           } catch {
             return undefined;
           }
