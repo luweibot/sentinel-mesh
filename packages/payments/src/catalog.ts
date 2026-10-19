@@ -14,7 +14,7 @@
  */
 
 /** USDC contract on Base mainnet (x402 settlement asset). */
-export const X402_ASSET_BASE_USDC = "0x833589fcd6edb6e08f4c2c6ff80ffe7fd34502b0";
+export const X402_ASSET_BASE_USDC = "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913";
 /** x402 v1 settlements on this deployment settle on Base. */
 export const X402_NETWORK_BASE = 8453;
 

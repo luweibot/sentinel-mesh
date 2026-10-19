@@ -65,7 +65,7 @@ export const AppConfig = z
      * canonical native USDC; override via BASE_USDC_ADDRESS if the
      * deployment chain's USDC lives elsewhere.
      */
-    baseUsdcAddress: z.string().regex(/^0x[0-9a-fA-F]{40}$/).default("0x833589fcd6edb6e08f4c2c6ff80ffe7fd34502b0"),
+    baseUsdcAddress: z.string().regex(/^0x[0-9a-fA-F]{40}$/).default("0x833589fcd6edb6e08f4c7c32d4f71b54bda02913"),
     /** Phase 0: only "mock" is legal. The enum documents the future "readonly" mode. */
     chainAdapterMode: z.enum(["mock", "readonly"]).default("mock").refine(
       (mode) => mode === "mock",

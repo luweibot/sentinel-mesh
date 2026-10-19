@@ -50,7 +50,7 @@ persist the `payer` address so settlement can be confirmed later.
 |---|---|
 | x402 | v1 (`exactInEvm`) |
 | Signature scheme | EIP-3009 `transferWithAuthorization` |
-| Token | native USDC on Base `0x833589fcd6edb6e08f4c2c6ff80ffe7fd34502b0` (6 decimals) |
+| Token | native USDC on Base `0x833589fcd6edb6e08f4c7c32d4f71b54bda02913` (6 decimals) |
 | RPC | public Base HTTPS JSON-RPC (default `https://mainnet.base.org`) |
 
 ## Security properties preserved

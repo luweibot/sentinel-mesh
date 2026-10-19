@@ -34,7 +34,7 @@ const DEX_PAIRS = {
       dexId: "uniswap",
       pairAddress: "0xpair1",
       baseToken: { address: "0x1111111111111111111111111111111111111111", name: "Doge", symbol: "DOGE" },
-      quoteToken: { address: "0x833589fcd6edb6e08f4c2c6ff80ffe7fd34502b0", name: "USDC", symbol: "USDC" },
+      quoteToken: { address: "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913", name: "USDC", symbol: "USDC" },
       priceUsd: "0.1234",
       liquidity: { usd: 50_000, base: 200_000, quote: 25_000 },
       volume: { h24: 120_000 },

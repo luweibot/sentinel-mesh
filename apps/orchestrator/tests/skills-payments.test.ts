@@ -286,7 +286,7 @@ describe("x402 route gating (service catalog)", () => {
     const validAfter = new Date(Date.parse("2026-04-01T11:59:00.000Z")).toISOString();
     const validBefore = new Date(Date.parse("2026-04-01T12:05:00.000Z")).toISOString();
     const signature = await account.signTypedData({
-      domain: { name: "USD Coin", version: "2", chainId: 8453, verifyingContract: "0x833589fcd6edb6e08f4c2c6ff80ffe7fd34502b0" },
+      domain: { name: "USD Coin", version: "2", chainId: 8453, verifyingContract: "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913" },
       types: {
         TransferWithAuthorization: [
           { name: "from", type: "address" },
@@ -351,8 +351,8 @@ describe("x402 route gating (service catalog)", () => {
   it("402s the newly priced data routes (token detail, price, risk, whales)", async () => {
     const app = await makeApp();
     const cases: Array<{ url: string; serviceId: string }> = [
-      { url: "/api/v1/tokens/base/0x833589fcd6edb6e08f4c2c6ff80ffe7fd34502b0", serviceId: "token.detail" },
-      { url: "/api/v1/price?chain=base&address=0x833589fcd6edb6e08f4c2c6ff80ffe7fd34502b0", serviceId: "price.check" },
+      { url: "/api/v1/tokens/base/0x833589fcd6edb6e08f4c7c32d4f71b54bda02913", serviceId: "token.detail" },
+      { url: "/api/v1/price?chain=base&address=0x833589fcd6edb6e08f4c7c32d4f71b54bda02913", serviceId: "price.check" },
       { url: "/api/v1/risk?chain=base", serviceId: "risk.check" },
       { url: "/api/v1/whales?chain=base", serviceId: "whales.list" },
     ];

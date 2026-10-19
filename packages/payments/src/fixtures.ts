@@ -11,7 +11,7 @@ import type { AssetAllowlistEntry, RecipientAllowlistEntry } from "@sentinel-mes
 export const BASE_TIME = Date.parse("2026-04-01T12:00:00.000Z");
 
 export const MOCK_ASSETS: AssetAllowlistEntry[] = [
-  { chain: "base", address: "0x833589fcd6edb6e08f4c2c6ff80ffe7fd34502b0", symbol: "USDC", decimals: 6 },
+  { chain: "base", address: "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913", symbol: "USDC", decimals: 6 },
   { chain: "ethereum", address: "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48", symbol: "USDC", decimals: 6 },
 ];
 
@@ -30,7 +30,7 @@ export function mockRequirement(overrides: Record<string, unknown> = {}): Record
   return {
     scheme: "exactInEvm",
     network: 8453,
-    asset: "0x833589fcd6edb6e08f4c2c6ff80ffe7fd34502b0",
+    asset: "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
     maxAmountRequired: "1000000",
     // Default receiver: OUR project wallet — matches the guard recipient
     // allowlist wired from AppConfig.paymentsReceiverAddress.

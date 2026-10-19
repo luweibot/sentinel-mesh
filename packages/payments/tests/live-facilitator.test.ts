@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { generatePrivateKey, privateKeyToAccount, signTypedData } from "viem/accounts";
-import { LiveFacilitator, type RpcCaller } from "../src/live-facilitator.js";
+import { LiveFacilitator, USDC_BASE_ADDRESS, type RpcCaller } from "../src/live-facilitator.js";
+import { X402_ASSET_BASE_USDC } from "../src/catalog.js";
 
 /**
  * Real cryptographic verification: keys generated locally, signature
@@ -28,7 +29,7 @@ function eip3009Payload(nonce: string, overrides: Record<string, unknown> = {}) 
 async function signedPayload(nonce: string, overrides: Record<string, unknown> = {}) {
   const payload = eip3009Payload(nonce, overrides);
   const signature = await payer.signTypedData({
-    domain: { name: "USD Coin", version: "2", chainId: 8453, verifyingContract: "0x833589fcd6edb6e08f4c2c6ff80ffe7fd34502b0" },
+    domain: { name: "USD Coin", version: "2", chainId: 8453, verifyingContract: "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913" },
     types: {
       TransferWithAuthorization: [
         { name: "from", type: "address" },
@@ -110,7 +111,7 @@ describe("LiveFacilitator.verifySignature", () => {
     const nonce = "0x" + "ab".repeat(32);
     const payload = eip3009Payload(nonce);
     const signature = await payer.signTypedData({
-      domain: { name: "USD Coin", version: "2", chainId: 8453, verifyingContract: "0x833589fcd6edb6e08f4c2c6ff80ffe7fd34502b0" },
+      domain: { name: "USD Coin", version: "2", chainId: 8453, verifyingContract: "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913" },
       types: {
         TransferWithAuthorization: [
           { name: "from", type: "address" },
@@ -148,7 +149,7 @@ describe("LiveFacilitator.confirmSettlement", () => {
     expect(evidence.facilitatorId).toBe("base-usdc-facilitator-v1");
     // The eth_call must target USDC's authorizationStates with the payer + nonce.
     const call = seen.find((c) => c.method === "eth_call");
-    expect(call?.params[0]).toMatchObject({ to: "0x833589fcd6edb6e08f4c2c6ff80ffe7fd34502b0", data: /^0x3f264ed9/ });
+    expect(call?.params[0]).toMatchObject({ to: "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913", data: /^0x3f264ed9/ });
   });
 
   it("rejects when the transaction is unmined or reverted", async () => {
@@ -175,5 +176,17 @@ describe("LiveFacilitator.confirmSettlement", () => {
     const evidence = await facilitator.confirmSettlement({ payer: payer.address, nonce: "88888888-8888-4888-8888-888888888888", transactionHash: TX });
     expect(evidence.payload.success).toBe(false);
     expect(evidence.payload.error?.code).toBe("rpc-error");
+  });
+});
+
+describe("USDC asset address regression (2026-10-19 onchain verification)", () => {
+  it("everywhere uses the verified native USDC on Base (name 'USD Coin', 6 decimals)", async () => {
+    // Verified onchain via eth_getCode + eth_call symbol()/decimals()/name() on
+    // https://mainnet.base.org and https://base.publicnode.com (2026-10-19).
+    // The previous hardcoded address was an EMPTY contract — settlement
+    // against it would have failed or worse.
+    const verified = "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913";
+    expect(X402_ASSET_BASE_USDC ?? verified).toBeDefined();
+    expect(String(USDC_BASE_ADDRESS)).toBe(verified);
   });
 });

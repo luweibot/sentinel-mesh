@@ -8,7 +8,7 @@ import type { X402Settlement } from "@sentinel-mesh/contracts";
  *   - x402 v1 ("exactInEvm")
  *   - EIP-3009 transferWithAuthorization, signed over EIP-712
  *   - USDC domain: { name: "USD Coin", version: "2", chainId: 8453,
- *                   verifyingContract: 0x833589fCD5eDb6e08f4c7FF80ffFd34502b0 }
+ *                   verifyingContract: 0x833589fcd6edb6e08f4c7c32d4f71b54bda02913 }
  *
  * A payment counts as RECEIVED only when BOTH hold:
  *   1. The EIP-712 signature recovers to the claimed payer, and
@@ -23,7 +23,7 @@ import type { X402Settlement } from "@sentinel-mesh/contracts";
 
 export const LIVE_FACILITATOR_ID = "base-usdc-facilitator-v1";
 
-export const USDC_BASE_ADDRESS = "0x833589fcd6edb6e08f4c2c6ff80ffe7fd34502b0";
+export const USDC_BASE_ADDRESS = "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913";
 export const BASE_CHAIN_ID = 8453;
 
 const EIP3009_DOMAIN_NAME = "USD Coin";
