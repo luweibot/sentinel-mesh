@@ -18,3 +18,4 @@ export function resolveMigrationsDir(): string {
   const here = dirname(fileURLToPath(import.meta.url));
   return join(here, "..", "migrations");
 }
+export { coerceJsonb } from "./jsonb.js";

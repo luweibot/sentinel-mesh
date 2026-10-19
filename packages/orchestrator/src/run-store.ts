@@ -1,5 +1,5 @@
 import type { WorkflowRun } from "@sentinel-mesh/contracts";
-import type { QueryExecutor } from "@sentinel-mesh/database";
+import { coerceJsonb, type QueryExecutor } from "@sentinel-mesh/database";
 
 /**
  * Durable workflow run storage. The full validated run document (including
@@ -59,6 +59,6 @@ export class PgRunStore implements RunStore {
       [runId],
     );
     const row = result.rows[0];
-    return row ? (JSON.parse(String(row["document"])) as WorkflowRun) : undefined;
+    return row ? coerceJsonb<WorkflowRun>(row["document"]) : undefined;
   }
 }

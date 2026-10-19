@@ -1,4 +1,4 @@
-import type { QueryExecutor } from "@sentinel-mesh/database";
+import { coerceJsonb, type QueryExecutor } from "@sentinel-mesh/database";
 import type { AgentTask, AgentTaskResult } from "@sentinel-mesh/contracts";
 import type { TaskRecord, TaskStore, TaskStatus } from "./task-store.js";
 
@@ -41,11 +41,11 @@ export class PgTaskStore implements TaskStore {
 
   private rowToRecord(row: Record<string, unknown>): TaskRecord {
     return {
-      task: JSON.parse(String(row["task"])) as AgentTask,
+      task: coerceJsonb<AgentTask>(row["task"]),
       status: String(row["status"]) as TaskStatus,
       attemptExecuted: Number(row["attempt_executed"] ?? 0),
       retryAt: row["retry_at"] ? new Date(String(row["retry_at"])).toISOString() : undefined,
-      result: row["result"] ? (JSON.parse(String(row["result"])) as AgentTaskResult) : undefined,
+      result: row["result"] ? coerceJsonb<AgentTaskResult>(row["result"]) : undefined,
       updatedAt: row["updated_at"] ? new Date(String(row["updated_at"])).toISOString() : "",
     };
   }
