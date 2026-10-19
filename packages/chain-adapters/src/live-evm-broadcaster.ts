@@ -68,6 +68,35 @@ function applySlippage(quoted: bigint, slippageBps: number): bigint {
   return (quoted * BigInt(10_000 - slippageBps)) / 10_000n;
 }
 
+/**
+ * mainnet.base.org is load-balanced and its nodes lag state by a few
+ * seconds: an approval mined on one node is not yet visible to the node
+ * serving eth_estimateGas, so swaps right after an approval "revert"
+ * spuriously. Estimation-stage reverts happen BEFORE anything is
+ * broadcast, so retrying them is safe (no double-send risk). Receipt-
+ * stage failures are NEVER retried here.
+ */
+async function withEstimateRetry<T>(fn: () => Promise<T>, attempts = 3, waitMs = 6_000): Promise<T> {
+  let lastErr: unknown;
+  for (let i = 0; i < attempts; i++) {
+    try {
+      return await fn();
+    } catch (err) {
+      lastErr = err;
+      let cause = err as { cause?: unknown } | undefined;
+      let estimateStage = false;
+      for (let depth = 0; cause && depth < 5; depth++) {
+        const name = (cause as { name?: string }).name;
+        if (name === "EstimateGasExecutionError") { estimateStage = true; break; }
+        cause = (cause as { cause?: unknown }).cause as { cause?: unknown } | undefined;
+      }
+      if (!estimateStage) throw err;
+      await new Promise((r) => setTimeout(r, waitMs));
+    }
+  }
+  throw lastErr;
+}
+
 export class LiveAeroBroadcaster {
   private readonly router: `0x${string}`;
   private readonly now: () => number;
@@ -115,13 +144,13 @@ export class LiveAeroBroadcaster {
   }): Promise<SwapReceipt> {
     const quoted = await this.quote(params.amountInWei, { from: BASE_WETH, to: params.tokenOut, stable: false, factory: AERO_POOL_FACTORY_BASE });
     const minOut = applySlippage(quoted, params.slippageBps);
-    const txHash = await this.deps.walletClient.writeContract({
+    const txHash = await withEstimateRetry(() => this.deps.walletClient.writeContract({
       address: this.router, abi: ROUTER_ABI, functionName: "swapExactETHForTokens",
       args: [minOut, [{ from: BASE_WETH, to: params.tokenOut, stable: false, factory: AERO_POOL_FACTORY_BASE }], this.deps.recipient, this.deadlineArg()],
       value: params.amountInWei,
       account: this.deps.walletClient.account!,
       chain: this.deps.walletClient.chain!,
-    });
+    }));
     return this.waitForReceipt(txHash, quoted, minOut);
   }
 
@@ -148,12 +177,12 @@ export class LiveAeroBroadcaster {
     }
     const quoted = await this.quote(params.amountInRaw, { from: params.tokenIn, to: BASE_WETH, stable: false, factory: AERO_POOL_FACTORY_BASE });
     const minOut = applySlippage(quoted, params.slippageBps);
-    const txHash = await this.deps.walletClient.writeContract({
+    const txHash = await withEstimateRetry(() => this.deps.walletClient.writeContract({
       address: this.router, abi: ROUTER_ABI, functionName: "swapExactTokensForETH",
       args: [params.amountInRaw, minOut, [{ from: params.tokenIn, to: BASE_WETH, stable: false, factory: AERO_POOL_FACTORY_BASE }], this.deps.recipient, this.deadlineArg()],
       account: this.deps.walletClient.account!,
       chain: this.deps.walletClient.chain!,
-    });
+    }));
     return this.waitForReceipt(txHash, quoted, minOut);
   }
 }
