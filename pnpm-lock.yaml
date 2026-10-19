@@ -96,6 +96,9 @@ importers:
       '@sentinel-mesh/api':
         specifier: workspace:*
         version: link:../api
+      '@sentinel-mesh/chain-adapters':
+        specifier: workspace:*
+        version: link:../../packages/chain-adapters
       '@sentinel-mesh/chain-data':
         specifier: workspace:*
         version: link:../../packages/chain-data
@@ -129,12 +132,18 @@ importers:
       '@sentinel-mesh/skills':
         specifier: workspace:*
         version: link:../../packages/skills
+      '@sentinel-mesh/treasury':
+        specifier: workspace:*
+        version: link:../../packages/treasury
       dotenv:
         specifier: ^16.4.5
         version: 16.6.1
       fastify:
         specifier: ^5.12.2
         version: 5.12.7
+      viem:
+        specifier: ^2.57.7
+        version: 2.57.7(bufferutil@4.1.0)(typescript@5.9.3)(utf-8-validate@6.0.6)(zod@3.25.76)
       zod:
         specifier: ^3.23.8
         version: 3.25.76
@@ -148,9 +157,6 @@ importers:
       typescript:
         specifier: ^5.6.3
         version: 5.9.3
-      viem:
-        specifier: ^2.57.7
-        version: 2.57.7(bufferutil@4.1.0)(typescript@5.9.3)(utf-8-validate@6.0.6)(zod@3.25.76)
       vitest:
         specifier: ^2.1.8
         version: 2.1.9(@types/node@20.19.43)(jsdom@25.0.1(bufferutil@4.1.0)(utf-8-validate@6.0.6))

@@ -16,7 +16,10 @@
     "@sentinel-mesh/skills": "workspace:*",
     "dotenv": "^16.4.5",
     "fastify": "^5.12.2",
-    "zod": "^3.23.8"
+    "zod": "^3.23.8",
+    "@sentinel-mesh/chain-adapters": "workspace:*",
+    "@sentinel-mesh/treasury": "workspace:*",
+    "viem": "^2.57.7"
   },
   "description": "Sentinel Mesh orchestration service: task issuing, research workflows, traces, budgets, retries, deadlines, and cancellation over the orchestration engine.",
   "devDependencies": {

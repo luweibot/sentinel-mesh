@@ -52,3 +52,12 @@ services:
         value: "50000"
       - key: ALLOWED_ORIGINS
         value: https://sentinel-mesh-phi.vercel.app
+      # Treasury gas top-up: every settled x402 payment auto-converts just
+      # enough USDC revenue into ETH gas (Base); SOL leg arms once the
+      # USDC-per-SOL oracle is wired. Requires EVM_PRIVATE_KEY.
+      - key: TREASURY_ENABLED
+        sync: false
+      - key: TREASURY_ETH_TARGET_WEI
+        sync: false
+      - key: TREASURY_SOL_TARGET_LAMPORTS
+        sync: false

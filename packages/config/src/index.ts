@@ -66,6 +66,23 @@ export const AppConfig = z
      * deployment chain's USDC lives elsewhere.
      */
     baseUsdcAddress: z.string().regex(/^0x[0-9a-fA-F]{40}$/).default("0x833589fcd6edb6e08f4c7c32d4f71b54bda02913"),
+    /**
+     * Treasury gas top-up: auto-convert received USDC revenue into
+     * just-enough ETH gas (Base) and SOL gas (Solana, via Mayan) after
+     * each settled x402 payment. Disabled by default; live deployments
+     * opt in with TREASURY_ENABLED=true.
+     */
+    treasuryEnabled: z.enum(["true", "false"]).default("false").transform((v) => v === "true"),
+    /** ETH gas target for the project wallet (wei). Default 0.003 ETH. */
+    treasuryEthTargetWei: z.coerce.bigint().positive().default(3_000_000_000_000_000n),
+    /** SOL gas target for the Solana project wallet (lamports). Default 0.1 SOL. */
+    treasurySolTargetLamports: z.coerce.bigint().positive().default(100_000_000n),
+    /** USDC raw kept as operating reserve — never auto-swapped. */
+    treasuryUsdcReserveRaw: z.coerce.bigint().min(0n).default(0n),
+    /** Slippage for treasury swaps, basis points (max 10%). */
+    treasurySlippageBps: z.coerce.number().int().min(0).max(1000).default(500),
+    /** Solana project wallet: SOL gas destination and Mayan bridge target. */
+    solanaWalletAddress: z.string().min(32).default("H2jn8HAwt14tJEmQ4g9uFMGWsznWuKoooACDA6STFWVF"),
     /** Phase 0: only "mock" is legal. The enum documents the future "readonly" mode. */
     chainAdapterMode: z.enum(["mock", "readonly"]).default("mock").refine(
       (mode) => mode === "mock",
@@ -129,6 +146,12 @@ function pick(env: NodeJS.ProcessEnv) {
     paymentsMode: env.PAYMENTS_MODE,
     baseRpcUrl: env.BASE_RPC_URL,
     baseUsdcAddress: env.BASE_USDC_ADDRESS,
+    treasuryEnabled: env.TREASURY_ENABLED === undefined ? undefined : String(env.TREASURY_ENABLED).toLowerCase(),
+    treasuryEthTargetWei: env.TREASURY_ETH_TARGET_WEI,
+    treasurySolTargetLamports: env.TREASURY_SOL_TARGET_LAMPORTS,
+    treasuryUsdcReserveRaw: env.TREASURY_USDC_RESERVE_RAW,
+    treasurySlippageBps: env.TREASURY_SLIPPAGE_BPS,
+    solanaWalletAddress: env.SOLANA_WALLET_ADDRESS,
     dataSource: env.DATA_SOURCE,
     chainAdapterMode: env.CHAIN_ADAPTER_MODE,
     policyMode: env.POLICY_MODE,

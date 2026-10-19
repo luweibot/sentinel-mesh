@@ -20,6 +20,7 @@ import { buildExecutionStack, restoreGuardState } from "./execution.js";
 import { buildSkillsStack, buildPaymentsStack } from "./skills-payments.js";
 import { createPool } from "@sentinel-mesh/database";
 import { buildApp } from "./app.js";
+import { buildTreasuryStack } from "./treasury.js";
 
 /**
  * Orchestrator service entrypoint.
@@ -92,6 +93,7 @@ async function main(): Promise<void> {
     skills,
     payments,
     api: { publisher, policyEngine, busMode },
+    treasury: buildTreasuryStack(config, logger),
     storageMode,
     dbProbe: pool
       ? async () => {

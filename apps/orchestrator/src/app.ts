@@ -9,6 +9,7 @@ import { researchWorkflowPlan } from "@sentinel-mesh/agents";
 import { TradeIntent, type ExecutionReceipt } from "@sentinel-mesh/contracts";
 import type { ExecutionStack } from "./execution.js";
 import type { PaymentsStack } from "./skills-payments.js";
+import type { TreasuryStack } from "./treasury.js";
 import { SkillIntakeRejectedError, SkillRegistryError, type SkillRegistry } from "@sentinel-mesh/skills";
 import { registerApiRoutes } from "@sentinel-mesh/api";
 import { buildProviders } from "@sentinel-mesh/chain-data";
@@ -59,6 +60,14 @@ export interface AppDeps {
     /** "in-memory" | "bullmq" — reported by /health/ready. */
     busMode: string;
   };
+  /**
+   * Treasury gas top-up. When enabled, every NEW settled x402 payment
+   * (not an idempotent replay) schedules a deficit-only conversion of
+   * the received USDC into ETH (Base) and — once its oracle is wired —
+   * SOL (Solana) gas. Settlement never depends on the top-up: it runs
+   * detached, and its failure is logged, never surfaced to the payer.
+   */
+  treasury?: TreasuryStack;
 }
 
 export function buildApp(deps: AppDeps): FastifyInstance {
@@ -563,6 +572,29 @@ export function buildApp(deps: AppDeps): FastifyInstance {
       }
       const verdict = await payments.guard.verifySettlement(body.paymentId, { transactionHash: body.transactionHash });
       reply.code(verdict.ok ? 200 : 422).send(verdict);
+      // Treasury: a NEW settlement (not an idempotent replay) schedules a
+      // deficit-only gas top-up from the just-arrived USDC revenue. Runs
+      // detached after a short delay (RPC nodes lag state behind the
+      // settlement receipt); the payer response never depends on it.
+      if (verdict.ok && deps.treasury?.enabled && !(verdict.message ?? "").includes("replay")) {
+        const treasury = deps.treasury;
+        const timer = setTimeout(() => {
+          void treasury.topUpGas()
+            .then((result) =>
+              logger.info(
+                {
+                  actions: result.plan.actions.map((a) => a.kind),
+                  notes: result.plan.notes,
+                  receipts: result.receipts.map((r) => r.txHash),
+                },
+                "treasury_top_up_after_settlement",
+              ),
+            )
+            .catch((error: unknown) => logger.error({ err: String(error) }, "treasury_top_up_failed"));
+        }, deps.treasury.settleDelayMs ?? 15_000);
+        // Never hold the process open just for a scheduled top-up.
+        (timer as { unref?: () => void }).unref?.();
+      }
     });
   }
 
