@@ -23,6 +23,7 @@ import { LimitsService } from "./limits.js";
 import type { LiquidityProvider } from "@sentinel-mesh/chain-data";
 import { evmToken, getChain, solanaToken } from "@sentinel-mesh/chain-data";
 import { DeterministicMockSigner, DeterministicPaperSimulator, type IsolatedSignerPort, type TransactionSimulationPort } from "./signing.js";
+import type { TradeBroadcastPort } from "./broadcast.js";
 
 /**
  * Guarded execution pipeline (PAPER ONLY).
@@ -48,8 +49,12 @@ import { DeterministicMockSigner, DeterministicPaperSimulator, type IsolatedSign
 export const GUARD_PIPELINE_VERSION = "0.1.0" as const;
 
 export interface ExecutionModeConfig {
-  /** Only "paper" is representable; there is no live mode. */
-  readonly mode: "disabled" | "paper";
+  /**
+   * "paper": mock-signed receipts (never broadcast). "live": real swaps
+   * through the TradeBroadcastPort, only constructible when the owner has
+   * released EXECUTION_MODE=live (docs/EXECUTION.md go-live checklist).
+   */
+  readonly mode: "disabled" | "paper" | "live";
 }
 
 export interface GuardedExecutorDeps {
@@ -70,6 +75,14 @@ export interface GuardedExecutorDeps {
   /** Rough notional estimate for limit checks, in USD cents per intent. */
   notionalUsdCentsFor: (intent: TradeIntent) => number;
   mode: ExecutionModeConfig;
+  /**
+   * Live trade port (ADR-016). REQUIRED for mode "live" — the executor
+   * fails closed with "execution-unavailable" when it is absent.
+   * Never constructed in paper mode.
+   */
+  broadcaster?: TradeBroadcastPort;
+  /** Slippage (bps) applied to live quotes; hard-capped by the port. */
+  slippageBps?: number;
   /**
    * Durable guard-state journal (audit 2026-10-19). Absent in the pure
    * in-memory dev mode; when present, commit points are journaled before
@@ -107,9 +120,12 @@ export class GuardedExecutionService implements ExecutionPort {
       return await this.reject(intent, authorization, "invalid-authorization", `intent failed schema validation: ${String(error)}`, decidedAt);
     }
 
-    // Fail closed when execution is not explicitly enabled as paper.
-    if (this.deps.mode.mode !== "paper") {
-      return await this.reject(intent, authorization, "execution-disabled", "guarded execution is disabled; only the paper mode may execute", decidedAt);
+    // Fail closed when execution is not explicitly enabled.
+    if (this.deps.mode.mode === "disabled") {
+      return await this.reject(intent, authorization, "execution-disabled", "guarded execution is disabled", decidedAt);
+    }
+    if (this.deps.mode.mode === "live" && !this.deps.broadcaster) {
+      return await this.reject(intent, authorization, "execution-unavailable", "live execution is enabled but no trade broadcast port is wired; failing closed", decidedAt);
     }
 
     try {
@@ -170,31 +186,83 @@ export class GuardedExecutionService implements ExecutionPort {
         throw new ExecutionRejectedError("price-impact-exceeded", `simulated impact ${simulation.priceImpactBps}bps exceeds the intent bound ${intent.maxPriceImpactBps}bps`);
       }
 
-      // 9. chain-specific transaction validation
-      this.validateTransaction(intent);
+      // 9. chain-specific transaction validation. In live mode the live
+      // executors validate the REAL transaction (router allowlist, minOut
+      // floors, fee caps) before broadcasting; the paper-draft validation
+      // below applies to paper artifacts only.
+      if (this.deps.mode.mode !== "live") {
+        this.validateTransaction(intent);
+      }
 
-      // 10. mock signing + paper receipt (never broadcast)
+      // 10. signing + receipt (paper artifact, or live broadcast via the
+      //     narrow TradeBroadcastPort)
       const canonical = `${intent.intentId}:${intent.chain}:${intent.tokenIn}:${intent.tokenOut}:${intent.amountInRaw}:${simulation.simulatedOutRaw}`;
-      const signed = await this.deps.signer.signExecution(canonical);
-      const paperTxHash = `paper-${createHash("sha256").update(`${signed.signature}:${intent.intentId}`).digest("hex").slice(0, 40)}`;
+      const signed = await this.deps.signer.signExecution(canonical, { chain: intent.chain });
 
+      let receipt: ExecutionReceipt;
+      if (this.deps.mode.mode === "live") {
+        // LIVE path: broadcast the real swap through the narrow port.
+        // The broadcast and its journaling are ordered so a crash can
+        // never lose the completed execution record.
+        let broadcast;
+        try {
+          broadcast = await this.deps.broadcaster!.execute({
+            chain: intent.chain,
+            tokenIn: intent.tokenIn,
+            tokenOut: intent.tokenOut,
+            amountInRaw: BigInt(intent.amountInRaw),
+            minAmountOutRaw: BigInt(intent.minAmountOutRaw),
+            slippageBps: this.deps.slippageBps ?? 100,
+          });
+        } catch (error) {
+          // The outcome is UNKNOWN: the transaction may have been
+          // broadcast and may still land. Fail closed, tell the operator
+          // not to blindly resubmit, and surface the error for manual
+          // reconciliation (docs/LIMITATIONS.md "live unknown outcomes").
+          throw new ExecutionRejectedError(
+            "execution-uncertain",
+            `live broadcast did not confirm; the transaction may be pending — reconcile onchain before resubmitting: ${String(error)}`,
+          );
+        }
+        if (broadcast.status !== "success") {
+          throw new ExecutionRejectedError(
+            "execution-reverted",
+            `${broadcast.detail} (tx ${broadcast.txHash}); executed output ${broadcast.executedOutRaw}`,
+          );
+        }
+        receipt = {
+          schemaVersion: 1,
+          receiptId: randomUUID(),
+          intentId: intent.intentId,
+          authorizationId: consumed.authorizationId,
+          status: "live-filled",
+          executionMode: "live",
+          txHash: broadcast.txHash,
+          simulatedOutRaw: broadcast.executedOutRaw,
+          feeUsdCents: broadcast.feeUsdCents,
+          decidedAt: this.deps.clock.now().toISOString(),
+          guardPipelineVersion: GUARD_PIPELINE_VERSION,
+        };
+      } else {
+        // PAPER path: deterministic mock-signed artifact, never broadcast.
+        const paperTxHash = `paper-${createHash("sha256").update(`${signed.signature}:${intent.intentId}`).digest("hex").slice(0, 40)}`;
+        receipt = {
+          schemaVersion: 1,
+          receiptId: randomUUID(),
+          intentId: intent.intentId,
+          authorizationId: consumed.authorizationId,
+          status: "paper-filled",
+          executionMode: "paper",
+          paperTxHash,
+          simulatedOutRaw: simulation.simulatedOutRaw,
+          feeUsdCents: simulation.feeUsdCents,
+          decidedAt: this.deps.clock.now().toISOString(),
+          guardPipelineVersion: GUARD_PIPELINE_VERSION,
+        };
+      }
       // The fill was reserved atomically in step 5; it now commits as the
       // receipt is recorded. No second recordFill is needed (and one would
       // double-count).
-
-      const receipt: ExecutionReceipt = {
-        schemaVersion: 1,
-        receiptId: randomUUID(),
-        intentId: intent.intentId,
-        authorizationId: consumed.authorizationId,
-        status: "paper-filled",
-        executionMode: "paper",
-        paperTxHash,
-        simulatedOutRaw: simulation.simulatedOutRaw,
-        feeUsdCents: simulation.feeUsdCents,
-        decidedAt: this.deps.clock.now().toISOString(),
-        guardPipelineVersion: GUARD_PIPELINE_VERSION,
-      };
       this.deps.ledger.record(receipt);
       this.deps.idempotency.complete(intent.intentId, hash, receipt.receiptId);
       // SECURITY (audit 2026-10-19): the receipt AND its idempotency entry

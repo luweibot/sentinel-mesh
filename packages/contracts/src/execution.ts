@@ -42,6 +42,9 @@ export const RejectionCode = z.enum([
   "kill-switch-engaged",
   "kill-switch-unknown",
   "execution-disabled",
+  "execution-unavailable",
+  "execution-uncertain",
+  "execution-reverted",
   "reconciliation-mismatch",
 ]);
 export type RejectionCode = z.infer<typeof RejectionCode>;
@@ -128,13 +131,13 @@ export const TradeAuthorization = z
   .strict();
 export type TradeAuthorization = z.infer<typeof TradeAuthorization>;
 
-export const ReceiptStatus = z.enum(["paper-filled", "rejected"]);
+export const ReceiptStatus = z.enum(["paper-filled", "live-filled", "rejected"]);
 export type ReceiptStatus = z.infer<typeof ReceiptStatus>;
 
 /**
- * The only execution artifact this phase can produce: a PAPER trade
- * receipt. executionMode is the literal "paper"; a broadcast hash cannot
- * be represented here.
+ * Execution receipt: a paper trade receipt (executionMode "paper",
+ * paperTxHash mock artifact) or a LIVE trade receipt (executionMode
+ * "live", txHash is a real onchain transaction hash).
  */
 export const ExecutionReceipt = z
   .object({
@@ -143,12 +146,14 @@ export const ExecutionReceipt = z
     intentId: Uuid,
     authorizationId: Uuid.nullable(),
     status: ReceiptStatus,
-    executionMode: z.literal("paper"),
+    executionMode: z.enum(["paper", "live"]),
     /** Set iff status is "rejected"; a typed fail-closed code. */
     rejectionCode: RejectionCode.optional(),
     rejectionDetail: z.string().optional(),
     /** Deterministic mock-signed paper artifact; never a real chain hash. */
     paperTxHash: z.string().min(1).optional(),
+    /** Real onchain transaction hash; set iff executionMode is "live". */
+    txHash: z.string().min(1).optional(),
     simulatedOutRaw: RawAmount.optional(),
     feeUsdCents: z.number().int().min(0).optional(),
     decidedAt: IsoDateTime,

@@ -463,6 +463,44 @@ export function buildApp(deps: AppDeps): FastifyInstance {
         logger,
         skipPaymentsStub: true,
         providers: buildProviders(deps.config.dataSource),
+        // policyMode=enforce (ADR-016): an "allow" policy verdict with
+        // explicit amounts authorizes and submits a guarded intent.
+        // Wired only when the execution stack exists; the endpoint fails
+        // closed when the posture is enforce and this port is absent.
+        ...(deps.execution
+          ? {
+              enforcement: {
+                authorizeAndSubmit: async (request) => {
+                  const intent = TradeIntent.parse({
+                    schemaVersion: 1,
+                    intentId: request.signalId,
+                    userId: request.userId,
+                    strategyId: request.strategyId,
+                    chain: request.chain,
+                    tokenIn: request.tokenIn,
+                    tokenOut: request.tokenOut,
+                    amountInRaw: request.amountInRaw,
+                    minAmountOutRaw: request.minAmountOutRaw,
+                    maxFeeUsdCents: request.maxFeeUsdCents,
+                    maxPriceImpactBps: request.maxPriceImpactBps,
+                    deadline: new Date(Date.now() + 5 * 60_000).toISOString(),
+                  });
+                  const authorization = await deps.execution!.authorizations.issue(intent, "signal-policy-enforcer");
+                  const receipt = await deps.execution!.port.submitIntent(intent, authorization);
+                  return {
+                    receiptId: receipt.receiptId,
+                    intentId: receipt.intentId,
+                    status: receipt.status,
+                    executionMode: receipt.executionMode,
+                    txHash: receipt.txHash,
+                    paperTxHash: receipt.paperTxHash,
+                    rejectionCode: receipt.rejectionCode,
+                    rejectionDetail: receipt.rejectionDetail,
+                  };
+                },
+              },
+            }
+          : {}),
       });
     }
 

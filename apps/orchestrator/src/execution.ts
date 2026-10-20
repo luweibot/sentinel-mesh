@@ -7,18 +7,25 @@ import {
   AuthorizationService,
   DeterministicMockSigner,
   DeterministicPaperSimulator,
+  DispatchingLiveSigner,
+  DispatchingTradeBroadcast,
   GuardedExecutionService,
   IdempotencyRegistry,
   InMemoryAuthorizationStore,
   InMemoryLimitStore,
   KillSwitch,
   LimitsService,
+  LiveEvmSigner,
+  LiveQuoteSimulator,
+  LiveSolanaSigner,
   ReconciliationLedger,
   StaticLimitPolicySource,
+  type ChainTradeLeg,
   type ExecutionPort,
 } from "@sentinel-mesh/execution";
 import type { TradeIntent } from "@sentinel-mesh/contracts";
 import type { GuardStateJournal, GuardStateSnapshot, KillSwitchState } from "@sentinel-mesh/execution";
+import { createLiveTradeLegs } from "@sentinel-mesh/chain-adapters";
 
 /**
  * Dev-environment execution wiring.
@@ -57,7 +64,50 @@ export interface BuildExecutionDeps {
    *  - boot restore is available via restoreGuardState()
    */
   journal?: GuardStateJournal;
+  /**
+   * Live trade legs (ADR-016). REQUIRED when config.executionMode is
+   * "live" — the stack fails closed at boot without them. Never wired in
+   * paper mode (the config gate still rejects "live" until the owner
+   * releases it per docs/EXECUTION.md).
+   */
+  live?: LiveTradeLegs;
 }
+
+/** Live legs + the matching dispatching signer, from runtime env keys. */
+export interface LiveTradeLegs {
+  evm: ChainTradeLeg;
+  solana: ChainTradeLeg;
+}
+
+/**
+ * Build the live trade legs from the orchestrator runtime env (ADR-016).
+ * Fails closed at boot — never at trade time — when a key is missing or
+ * malformed: live mode requires BOTH legs to be wired.
+ */
+export function buildLiveTradeLegs(config: AppConfig, logger: Logger): LiveTradeLegs {
+  const evmKey = process.env.EVM_PRIVATE_KEY;
+  const solKey = process.env.SOLANA_PRIVATE_KEY;
+  // Narrowing throws: each missing key aborts the boot (fail closed).
+  if (!evmKey || !/^0x[0-9a-fA-F]{64}$/.test(evmKey)) {
+    throw new Error("executionMode=live requires a valid EVM_PRIVATE_KEY (0x + 64 hex chars); refusing to start (fail closed)");
+  }
+  if (!solKey) {
+    throw new Error("executionMode=live requires SOLANA_PRIVATE_KEY (base58) in the runtime environment; refusing to start (fail closed)");
+  }
+  // Constructed inside chain-adapters so viem type identities never
+  // cross the package boundary (same pattern as the treasury leg).
+  const legs = createLiveTradeLegs({
+    rpcUrl: config.baseRpcUrl,
+    privateKey: evmKey as `0x${string}`,
+    recipient: config.paymentsReceiverAddress as `0x${string}`,
+    solanaSecretKey: solKey,
+    jupiterApiKey: process.env.JUPITER_API_KEY,
+  });
+  logger.warn({ solana: legs.solana.takerAddress }, "live_trade_legs_wired");
+  return { evm: legs.evm, solana: legs.solana };
+}
+
+
 
 export function buildExecutionStack(
   config: AppConfig,
@@ -65,6 +115,23 @@ export function buildExecutionStack(
   clock: { now(): Date },
   deps: BuildExecutionDeps = {},
 ): ExecutionStack {
+  const liveMode = config.executionMode === "live";
+  // Fail closed AT BOOT — never at trade time — when live mode is
+  // requested without fully wired legs and keys.
+  if (liveMode) {
+    if (!deps.live?.evm || !deps.live?.solana || !process.env.EVM_PRIVATE_KEY || !process.env.SOLANA_PRIVATE_KEY) {
+      throw new Error("executionMode=live requires live trade legs AND both runtime signer keys; refusing to start (fail closed)");
+    }
+  }
+  const broadcaster = liveMode ? new DispatchingTradeBroadcast(deps.live?.evm, deps.live?.solana) : undefined;
+  const evmKey = process.env.EVM_PRIVATE_KEY as `0x${string}` | undefined;
+  const solKey = process.env.SOLANA_PRIVATE_KEY;
+  const signer = liveMode
+    ? new DispatchingLiveSigner(
+        evmKey ? new LiveEvmSigner({ privateKey: evmKey }) : undefined,
+        solKey ? new LiveSolanaSigner({ base58SecretKey: solKey }) : undefined,
+      )
+    : new DeterministicMockSigner();
   const killSwitch = new KillSwitch();
   // SECURITY (audit 2026-10-19): auto-clear ONLY in pure in-memory dev
   // mode. With a durable journal the switch restores from storage and a
@@ -113,15 +180,19 @@ export function buildExecutionStack(
         notionalAdvisoryFraction: 1,
       },
     }),
-    simulator: new DeterministicPaperSimulator(),
-    signer: new DeterministicMockSigner(),
+    simulator: liveMode
+      ? new LiveQuoteSimulator(broadcaster!, { slippageBps: 100 })
+      : new DeterministicPaperSimulator(),
+    signer,
+    broadcaster,
+    slippageBps: 100,
     clock,
     logger,
     minPoolTvlUsdCents: 100_000, // $1,000 liquidity floor
     liquidity: buildProviders(config.dataSource).liquidity,
     // Deterministic dev notional estimate: 1c per 10^6 base units.
     notionalUsdCentsFor: (intent: TradeIntent) => Math.ceil(Number(BigInt(intent.amountInRaw) / 10n ** 6n)),
-    mode: { mode: config.executionMode === "paper" ? "paper" : "disabled" },
+    mode: { mode: liveMode ? "live" : config.executionMode === "paper" ? "paper" : "disabled" },
     journal: deps.journal,
   });
 

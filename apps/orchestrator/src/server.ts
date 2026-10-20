@@ -16,7 +16,7 @@ import {
 } from "@sentinel-mesh/orchestrator";
 import { registerAllAgents } from "@sentinel-mesh/agents";
 import { PgGuardStateJournal, PgSpendCapJournal } from "@sentinel-mesh/orchestrator";
-import { buildExecutionStack, restoreGuardState } from "./execution.js";
+import { buildExecutionStack, buildLiveTradeLegs, restoreGuardState } from "./execution.js";
 import { buildSkillsStack, buildPaymentsStack } from "./skills-payments.js";
 import { createPool } from "@sentinel-mesh/database";
 import { buildApp } from "./app.js";
@@ -73,7 +73,14 @@ async function main(): Promise<void> {
     },
   });
 
-  const execution = buildExecutionStack(config, logger, clock, { journal: guardJournal });
+  const execution = buildExecutionStack(config, logger, clock, {
+    journal: guardJournal,
+    // Live legs are built from runtime secrets only in live mode
+    // (ADR-016). The config gate still rejects EXECUTION_MODE=live until
+    // the owner releases it per docs/EXECUTION.md; this wiring activates
+    // the moment it does.
+    ...(config.executionMode === "live" ? { live: buildLiveTradeLegs(config, logger) } : {}),
+  });
   registerAllAgents(engine, execution.port);
   const skills = buildSkillsStack(config, logger, clock).registry;
   const payments = buildPaymentsStack(config, logger, clock, { journal: spendCapJournal });

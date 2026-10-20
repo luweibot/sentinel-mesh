@@ -8,3 +8,5 @@ export * from "./mock-trade-simulator.js";
 export * from "./trade-transaction.js";
 export * from "./live-evm-broadcaster.js";
 export * from "./live-stack.js";
+export * from "./live-trade-execution.js";
+export * from "./live-jupiter-executor.js";

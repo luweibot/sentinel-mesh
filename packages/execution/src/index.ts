@@ -5,3 +5,4 @@ export * from "./signing.js";
 export * from "./live-signing.js";
 export * from "./executor.js";
 export * from "./journal.js";
+export * from "./broadcast.js";

@@ -61,7 +61,7 @@ export interface SwapReceipt {
   minOutRaw: bigint;
 }
 
-function applySlippage(quoted: bigint, slippageBps: number): bigint {
+export function applySlippage(quoted: bigint, slippageBps: number): bigint {
   if (slippageBps < 0 || slippageBps > MAX_SLIPPAGE_BPS) {
     throw new Error(`slippageBps ${slippageBps} outside safe range 0..${MAX_SLIPPAGE_BPS}`);
   }
@@ -76,7 +76,7 @@ function applySlippage(quoted: bigint, slippageBps: number): bigint {
  * broadcast, so retrying them is safe (no double-send risk). Receipt-
  * stage failures are NEVER retried here.
  */
-async function withEstimateRetry<T>(fn: () => Promise<T>, attempts = 3, waitMs = 6_000): Promise<T> {
+export async function withEstimateRetry<T>(fn: () => Promise<T>, attempts = 3, waitMs = 6_000): Promise<T> {
   let lastErr: unknown;
   for (let i = 0; i < attempts; i++) {
     try {

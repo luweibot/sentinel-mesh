@@ -268,6 +268,12 @@ importers:
       '@sentinel-mesh/contracts':
         specifier: workspace:*
         version: link:../contracts
+      '@solana/web3.js':
+        specifier: ^1.95.8
+        version: 1.99.0(bufferutil@4.1.0)(typescript@5.9.3)(utf-8-validate@6.0.6)
+      bs58:
+        specifier: ^6.0.0
+        version: 6.0.0
       viem:
         specifier: ^2.57.7
         version: 2.57.7(bufferutil@4.1.0)(typescript@5.9.3)(utf-8-validate@6.0.6)(zod@3.25.76)
@@ -378,6 +384,15 @@ importers:
       '@sentinel-mesh/policy-engine':
         specifier: workspace:*
         version: link:../policy-engine
+      '@solana/web3.js':
+        specifier: ^1.95.8
+        version: 1.99.0(bufferutil@4.1.0)(typescript@5.9.3)(utf-8-validate@6.0.6)
+      bs58:
+        specifier: ^6.0.0
+        version: 6.0.0
+      tweetnacl:
+        specifier: ^1.0.3
+        version: 1.0.3
       viem:
         specifier: ^2.57.7
         version: 2.57.7(bufferutil@4.1.0)(typescript@5.9.3)(utf-8-validate@6.0.6)(zod@3.25.76)
@@ -2828,6 +2843,9 @@ packages:
     resolution: {integrity: sha512-k2ev5dv9OgP2pJwaPuydkZdid+haX2U5TDGcPtpAz0gb0nbRR3eXY/cpfrlvHih52YRTxWIcRVKc0ri3C2Scrg==}
     hasBin: true
 
+  tweetnacl@1.0.3:
+    resolution: {integrity: sha512-6rt+RN7aOi1nGMyC4Xa5DdYiukl2UWCbcJft7YhxReBGQD7OAM8Pbxw6YMo4r2diNEA8FEmu32YOn9rhaiE5yw==}
+
   type-check@0.4.0:
     resolution: {integrity: sha512-XleUoc9uwGXqjWwXaUTZAmzMcFZ5858QA2vvx1Ur5xIcixXIP+8LnFDgRplU30us6teqdlskFfu+ae4K79Ooew==}
     engines: {node: '>= 0.8.0'}
@@ -5184,6 +5202,8 @@ snapshots:
       '@turbo/linux-arm64': 2.11.9
       '@turbo/windows-64': 2.11.9
       '@turbo/windows-arm64': 2.11.9
+
+  tweetnacl@1.0.3: {}
 
   type-check@0.4.0:
     dependencies:

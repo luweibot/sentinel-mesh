@@ -16,11 +16,11 @@ describe("computeGasTopUpPlan", () => {
   it("empty balances: plans both legs, ETH first (priority), SOL bumped to bridge minimum", () => {
     const p = computeGasTopUpPlan(base, { ethBalanceWei: 0n, solBalanceLamports: 0n, usdcBalanceRaw: 50_000_000n });
     expect(p.actions).toHaveLength(2);
-    expect(p.actions[0].kind).toBe("swapUsdcToEthOnBase");
+    expect(p.actions[0]!.kind).toBe("swapUsdcToEthOnBase");
     // ETH deficit 0.002 ETH → 4.8 USDC + 2% buffer = 4896000+ buffer ⇒ ~4900000
     expect((p.actions[0] as { usdcRaw: bigint }).usdcRaw).toBe(4_896_000n);
     // SOL deficit 0.1 SOL → 15 USDC; remainder 50004000 → but SOL needs 15 USDC, remainder ~45.104 USDC ≥ 15
-    expect(p.actions[1].kind).toBe("bridgeUsdcToSolanaForGas");
+    expect(p.actions[1]!.kind).toBe("bridgeUsdcToSolanaForGas");
     expect((p.actions[1] as { usdcRaw: bigint; gasDropSol: number }).usdcRaw).toBe(15_000_000n);
     expect((p.actions[1] as { gasDropSol: number }).gasDropSol).toBe(0.1);
   });
@@ -61,7 +61,7 @@ describe("computeGasTopUpPlan", () => {
       ethBalanceWei: 0n, solBalanceLamports: 0n, usdcBalanceRaw: 50_000_000n,
     });
     expect(p.actions).toHaveLength(1);
-    expect(p.actions[0].kind).toBe("swapUsdcToEthOnBase");
+    expect(p.actions[0]!.kind).toBe("swapUsdcToEthOnBase");
     expect(p.notes.join(" ")).toContain("usdcPerSol");
   });
 

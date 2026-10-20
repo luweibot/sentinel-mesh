@@ -88,9 +88,16 @@ export const AppConfig = z
       (mode) => mode === "mock",
       { message: "phase 0 supports chainAdapterMode=mock only; readonly adapters are not enabled yet" },
     ),
-    policyMode: z.enum(["dry-run", "enforce"]).default("dry-run").refine((mode) => mode === "dry-run", {
-      message: "phase 0 supports policyMode=dry-run only; enforcement is not implemented yet",
-    }),
+    /**
+     * Policy posture. "dry-run": signals are evaluated and recorded, but
+     * nothing is ever submitted for execution (phase 0 behavior).
+     * "enforce" (ADR-016): an "allow" policy decision on a signal with
+     * explicit amounts authorizes and submits a guarded intent through
+     * the full guard pipeline (kill switch, idempotency, policy
+     * re-check, authorization, limits, liquidity, bounds, validation,
+     * signing). Caps are ENFORCED on every fill, not just evaluated.
+     */
+    policyMode: z.enum(["dry-run", "enforce"]).default("dry-run"),
     /**
      * Guarded execution mode. "paper" enables the guarded paper executor
      * (mock signing, never broadcast). "disabled" is the fail-closed default
@@ -98,13 +105,17 @@ export const AppConfig = z
      * load: live trading requires the production go-live checklist
      * (docs/EXECUTION.md) and a deliberate platform release.
      */
-    executionMode: z.enum(["disabled", "paper", "live"]).default("disabled").refine(
-      (mode) => mode !== "live",
-      {
-        message:
-          "executionMode=live is not supported: live trading requires the production go-live checklist (docs/EXECUTION.md) and a deliberate platform release",
-      },
-    ),
+    /**
+     * Guarded execution mode (ADR-016). "disabled": fail-closed default.
+     * "paper": guarded paper executor (mock signing, never broadcast).
+     * "live": real swaps via the live trade legs — requires
+     * policyMode=enforce (validateExecutionCoupling), both runtime
+     * signer keys at boot (buildExecutionStack fails closed), and the
+     * docs/EXECUTION.md go-live checklist completed by the operator.
+     * Owner approved live trading 2026-10-19; release = deliberately
+     * setting EXECUTION_MODE=live in the deployment environment.
+     */
+    executionMode: z.enum(["disabled", "paper", "live"]).default("disabled"),
     mockSignerAddress: z.string().regex(EvmAddressPattern).default(`0x${"0".repeat(40)}`),
     policyMaxNotionalUsdCents: z.coerce
       .number()
@@ -166,6 +177,24 @@ function pick(env: NodeJS.ProcessEnv) {
  * Load and validate configuration from an environment object.
  * Throws ConfigValidationError with per-variable details on failure.
  */
+/**
+ * Cross-field coupling (ADR-016): EXECUTION_MODE=live is only legal with
+ * POLICY_MODE=enforce — live trades can never run under a dry-run policy
+ * posture. Active the moment the executionMode gate (which still rejects
+ * "live" until the owner releases it per docs/EXECUTION.md) is lifted.
+ */
+export function validateExecutionCoupling(config: {
+  executionMode: string;
+  policyMode: string;
+}): void {
+  if (config.executionMode === "live" && config.policyMode !== "enforce") {
+    throw new ConfigValidationError(
+      "Invalid environment configuration:\n  - executionMode: live execution requires policyMode=enforce (dry-run policy posture can never gate live trades)",
+      [{ path: "executionMode", message: "live requires policyMode=enforce" }],
+    );
+  }
+}
+
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   const result = AppConfig.safeParse(pick(env));
   if (!result.success) {
@@ -176,5 +205,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     const summary = issues.map((issue) => `  - ${issue.path}: ${issue.message}`).join("\n");
     throw new ConfigValidationError(`Invalid environment configuration:\n${summary}`, issues);
   }
+  validateExecutionCoupling(result.data);
   return result.data;
 }

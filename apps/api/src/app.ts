@@ -27,11 +27,51 @@ import { registerExplorerRoutes, type ExplorerOptions } from "./explorer.js";
 
 export const API_VERSION = "0.1.0";
 
+/**
+ * Signal enforcement port (ADR-016, policyMode=enforce). The API package
+ * defines only this narrow seam; the orchestrator wires the real
+ * implementation (authorization mint + guarded executor submit). The
+ * port receives a signal whose policy verdict is "allow" with explicit
+ * amounts, and returns the guarded execution receipt.
+ */
+export interface SignalEnforcementRequest {
+  signalId: string;
+  chain: "base" | "ethereum" | "solana" | "solana-mainnet" | "solana-devnet";
+  tokenIn: string;
+  tokenOut: string;
+  /** Whole-string base-unit amount of tokenIn to trade. */
+  amountInRaw: string;
+  /** Whole-string base-unit minimum acceptable output. */
+  minAmountOutRaw: string;
+  maxFeeUsdCents: number;
+  maxPriceImpactBps: number;
+  userId: string;
+  strategyId: string;
+  sourceWallet?: string;
+}
+
+export interface SignalEnforcementReceipt {
+  receiptId: string;
+  intentId: string;
+  status: string;
+  executionMode: string;
+  txHash?: string;
+  paperTxHash?: string;
+  rejectionCode?: string;
+  rejectionDetail?: string;
+}
+
+export interface SignalEnforcementPort {
+  authorizeAndSubmit(request: SignalEnforcementRequest): Promise<SignalEnforcementReceipt>;
+}
+
 export interface AppDeps {
   config: AppConfig;
   logger?: Logger;
   publisher: EventPublisher;
   policyEngine: PolicyEngine;
+  /** Wired when policyMode=enforce; absent + allow verdict fails closed. */
+  enforcement?: SignalEnforcementPort;
   /** "in-memory" or "bullmq"; reported by /health/ready. */
   busMode: string;
   /** Optional database probe used by /health/ready when DATABASE_URL is set. */
@@ -86,6 +126,17 @@ export function registerApiRoutes(app: FastifyInstance, deps: AppDeps): void {
       tokenOut: z.string().min(1),
       notionalUsdCents: z.number().int().positive(),
       sourceWallet: z.string().min(1).optional(),
+      /**
+       * Enforce-mode fields (ADR-016): explicit base-unit amounts. An
+       * "allow" verdict WITHOUT these fails closed — the API never
+       * invents amounts from a notional (that would need a price oracle).
+       */
+      amountInRaw: z.string().regex(/^\d+$/).optional(),
+      minAmountOutRaw: z.string().regex(/^\d+$/).optional(),
+      userId: z.string().min(1).optional(),
+      strategyId: z.string().min(1).optional(),
+      maxFeeUsdCents: z.number().int().min(0).max(10_000).optional(),
+      maxPriceImpactBps: z.number().int().min(0).max(5_000).optional(),
     })
     .strict();
 
@@ -133,13 +184,71 @@ export function registerApiRoutes(app: FastifyInstance, deps: AppDeps): void {
       "signal_evaluated",
     );
 
+    // ---- policyMode=enforce (ADR-016) -------------------------------------
+    // An "allow" verdict with explicit amounts authorizes and submits a
+    // guarded intent. Everything else fails closed.
+    if (deps.config.policyMode === "enforce") {
+      if (decision.verdict !== "allow") {
+        return reply.code(202).send({
+          signal,
+          decision,
+          execution: {
+            status: "not-executed",
+            reason: `policy verdict '${decision.verdict}' in enforce mode; no intent was submitted`,
+          },
+        });
+      }
+      if (!body.amountInRaw || !body.minAmountOutRaw) {
+        return reply.code(422).send({
+          signal,
+          decision,
+          execution: {
+            status: "not-executed",
+            reason:
+              "enforce mode requires explicit amountInRaw and minAmountOutRaw base-unit strings on the signal; refusing to invent amounts (no price oracle)",
+          },
+        });
+      }
+      if (!deps.enforcement) {
+        // Fail closed: enforce posture without an execution stack must
+        // never degrade into "evaluate only".
+        return reply.code(503).send({
+          signal,
+          decision,
+          execution: {
+            status: "not-executed",
+            reason: "enforce mode is configured but no enforcement port is wired; failing closed",
+          },
+        });
+      }
+      const receipt = await deps.enforcement.authorizeAndSubmit({
+        signalId: signal.signalId,
+        chain: signal.chain,
+        tokenIn: signal.tokenIn,
+        tokenOut: signal.tokenOut,
+        amountInRaw: body.amountInRaw,
+        minAmountOutRaw: body.minAmountOutRaw,
+        maxFeeUsdCents: body.maxFeeUsdCents ?? 100,
+        maxPriceImpactBps: body.maxPriceImpactBps ?? 300,
+        userId: body.userId ?? "demo-user",
+        strategyId: body.strategyId ?? "demo-strategy",
+        sourceWallet: body.sourceWallet,
+      });
+      return reply.code(202).send({
+        signal,
+        decision,
+        execution: { status: receipt.status, receipt },
+      });
+    }
+
+    // ---- dry-run (default) -----------------------------------------------
     return reply.code(202).send({
       signal,
       decision,
       execution: {
         status: "not-executed",
         reason:
-          "phase 0 runs in simulation mode; no trade execution exists in this build, so no swap, transfer or signature was ever produced",
+          "policyMode=dry-run: signals are evaluated and recorded, but nothing is submitted for execution in this posture",
       },
     });
   });

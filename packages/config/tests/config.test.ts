@@ -46,11 +46,17 @@ describe("loadConfig", () => {
     }
   });
 
-  it("rejects live execution mode (phase 0 guard)", () => {
-    expect(() => loadConfig({ EXECUTION_MODE: "live" , DATA_SOURCE: "fixture" })).toThrow(ConfigValidationError);
+  it("accepts live execution mode, coupled to enforce posture (ADR-016; owner approved 2026-10-19)", () => {
+    // Live is a valid, deliberate release: EXECUTION_MODE=live in the
+    // deployment env. The boot-time coupling lives in
+    // validateExecutionCoupling (live requires policyMode=enforce) and
+    // buildExecutionStack (fails closed without signer keys/legs).
+    const live = loadConfig({ EXECUTION_MODE: "live", DATA_SOURCE: "fixture", POLICY_MODE: "enforce" });
+    expect(live.executionMode).toBe("live");
+    // dry-run policy posture can never gate live trades
+    expect(() => loadConfig({ EXECUTION_MODE: "live", DATA_SOURCE: "fixture", POLICY_MODE: "dry-run" })).toThrow(ConfigValidationError);
     const paper = loadConfig({ EXECUTION_MODE: "paper", DATA_SOURCE: "fixture" });
     expect(paper.executionMode).toBe("paper");
-    expect(() => loadConfig({ EXECUTION_MODE: "live" , DATA_SOURCE: "fixture" })).toThrow(/go-live checklist/);
   });
 
   it("rejects readonly chain mode (phase 0 guard)", () => {

@@ -1,4 +1,4 @@
-import type { TradeIntent } from "@sentinel-mesh/contracts";
+import type { ChainId, TradeIntent } from "@sentinel-mesh/contracts";
 import { MockSigner } from "@sentinel-mesh/chain-adapters";
 import { createHash } from "node:crypto";
 
@@ -29,7 +29,7 @@ export interface IsolatedSignerPort {
    * instead — the port shape stays the same so agents remain unable to
    * reach the key.
    */
-  signExecution(canonical: string): Promise<{ signature: string; signerId: string; mode: "mock" | "live" }>;
+  signExecution(canonical: string, context?: { chain: ChainId }): Promise<{ signature: string; signerId: string; mode: "mock" | "live" }>;
 }
 
 export class DeterministicMockSigner implements IsolatedSignerPort {
@@ -42,7 +42,7 @@ export class DeterministicMockSigner implements IsolatedSignerPort {
     this.delegate = new MockSigner();
   }
 
-  async signExecution(canonical: string): Promise<{ signature: string; signerId: string; mode: "mock" }> {
+  async signExecution(canonical: string, _context?: { chain: ChainId }): Promise<{ signature: string; signerId: string; mode: "mock" }> {
     const signed = await this.delegate.signMessage(canonical);
     return { signature: signed.signature, signerId: this.signerId, mode: "mock" };
   }
