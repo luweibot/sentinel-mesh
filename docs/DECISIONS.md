@@ -166,3 +166,21 @@ prerequisite for that step.
   in-memory only (cross-check cosmetic; executor idempotency itself restores
   from Postgres). Worth durably restoring that set before EXECUTION_MODE=live.
   Operator drill recorded; global switch left **clear**.
+
+- **ADR-016 (2026-10-20): Live execution mode released behind deliberate env gate.**
+  Owner explicitly approved live trading on 2026-10-19 and authorized lifting the
+  paper-only posture (recorded then). This ADR records the code release:
+  - Live trade adapters wired end-to-end (Aerodrome exact-in ERC20 swaps with
+    narrow per-token allowances on Base, Jupiter v6 legacy route on Solana),
+    real ECDSA/ed25519 canonical-payload signers behind the existing signer
+    port, `live-filled` receipts with onchain tx hashes in the durable journal.
+  - The `executionMode=live` refine gate in packages/config was removed
+    (checklist release step 2) per the owner's prior authorization; `"disabled"`
+    remains the fail-closed default. Live requires `policyMode=enforce`
+    (boot-time coupling check) and both runtime signer keys, else the
+    orchestrator refuses to start (fail closed at boot, never at trade time).
+  - Actual activation remains a two-step deliberate release: set
+    `EXECUTION_MODE=live` in the orchestrator service env, then execute ONE
+    minimal live trade and reconcile journal vs onchain before enabling the
+    5-minute pipeline (checklist steps 3-5).
+  Commit: 0b399fa. All packages build; full test suite (16 suites) green.

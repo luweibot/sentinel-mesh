@@ -1,14 +1,16 @@
 # Execution go-live checklist (executionMode: live)
 
-The config schema rejects `EXECUTION_MODE=live` until every item below is
-deliberately released by the platform owner. This file is the gate the
-error message points to.
+Owner approved live trading on 2026-10-19; the config-level reject gate
+was removed in ADR-016 (2026-10-20). Remaining unchecked items still block
+the release steps below — this file remains the go-live gate.
 
 ## Hard prerequisites (code + infrastructure)
-- [ ] Live trade adapters implemented and tested: Base swap routing via
+- [x] Live trade adapters implemented and tested: Base swap routing via
       Aero (formerly Aerodrome) with Uniswap V3 fallback, Jupiter v6 on
       Solana; real EVM + Solana signers behind the existing signer port.
-- [ ] `policyMode=enforce` implemented (limits enforced, not just evaluated).
+      (2026-10-20: ADR-016, commit 0b399fa; LiveAeroUniswapTradeExecutor +
+      LiveJupiterTradeExecutor behind the existing ports, suite green.)
+- [x] `policyMode=enforce` implemented (limits enforced, not just evaluated).
 - [ ] Trading keys present ONLY in the orchestrator runtime environment
       (never in git, never in the API service, never in the frontend).
 - [ ] Gas-funded wallets: Base ETH for EVM trades, SOL for Solana trades.
@@ -23,10 +25,12 @@ error message points to.
       (2026-10-20: drill run on production orchestrator, ADR-015 in DECISIONS.md.)
 
 ## Release steps (in order)
-1. Owner confirms this checklist is satisfied and explicitly authorizes
+1. [x] Owner confirms this checklist is satisfied and explicitly authorizes
    `EXECUTION_MODE=live` (recorded in docs/DECISIONS.md).
-2. Remove the `executionMode` refine gate in packages/config; keep
+   (2026-10-19 approval; ADR-016 records it 2026-10-20.)
+2. [x] Remove the `executionMode` refine gate in packages/config; keep
    `"disabled"` as the fail-closed default for new environments.
+   (2026-10-20: done, ADR-016.)
 3. Set `EXECUTION_MODE=live` (and only then) in the orchestrator service env.
 4. Deploy, verify health, execute ONE minimal live trade, reconcile the
    journal entry against the onchain receipt.
