@@ -36,6 +36,10 @@ import type { SpendCapStateJournal } from "@sentinel-mesh/orchestrator";
  *  6. released reservations do not permanently consume cap space
  *  7. an in-flight intent from a dead process is dropped, not stuck
  *  8. x402 spend-cap utilization survives a restart
+ *  9. reconciliation coverage survives a restart: BOTH executed and
+ *     REJECTED intents are restored as submitted (rejection receipts
+ *     have no idempotency row — restoring from idempotency alone flagged
+ *     every rejected intent as an orphan; observed in the ADR-015 drill)
  */
 
 const EVM_TOKEN_IN = "0xabc0000000000000000000000000000000000001";
@@ -178,7 +182,35 @@ describe("durable guard state across a restart (sleep/wake)", () => {
     expect(rejection.rejectionCode).toBe("duplicate-submission-conflict");
   });
 
-  it("an ENGAGED kill switch survives a restart", async () => {
+it("reconciliation coverage survives a restart: rejected intents are not orphans (ADR-015 observation, fixed)", async () => {
+    const journal = new FakeGuardStateJournal();
+    const before = await boot(journal);
+    await before.setKillSwitch("global", null, "clear");
+
+    // one filled intent and one REJECTED intent (no idempotency row)
+    const filled = freshIntent();
+    const fillReceipt = await execute(before, filled);
+    expect(fillReceipt.status).toBe("paper-filled");
+    await before.setKillSwitch("global", null, "engaged");
+    const rejected = freshIntent();
+    const rejectReceipt = await execute(before, rejected);
+    expect(rejectReceipt.status).toBe("rejected");
+    expect(rejectReceipt.rejectionCode).toBe("kill-switch-engaged");
+    await before.setKillSwitch("global", null, "clear");
+
+    // sleep/wake: a new stack restoring from the same journal
+    const after = await boot(journal);
+
+    // Both intents count as submitted; no orphan receipts.
+    expect(after.submittedIntentIds.has(filled.intentId)).toBe(true);
+    expect(after.submittedIntentIds.has(rejected.intentId)).toBe(true);
+    const report = after.ledger.reconcile([...after.submittedIntentIds], () => new Date());
+    expect(report.mismatches.filter((m) => m.problem.includes("orphan"))).toEqual([]);
+    expect(report.missingReceipts).toEqual([]);
+    expect(report.duplicateReceipts).toEqual([]);
+  });
+
+    it("an ENGAGED kill switch survives a restart", async () => {
     const journal = new FakeGuardStateJournal();
     const before = await boot(journal);
     await before.setKillSwitch("global", null, "clear");

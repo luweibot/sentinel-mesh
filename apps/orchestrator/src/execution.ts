@@ -251,12 +251,21 @@ export async function restoreGuardState(
   internal.idempotency.restore(snapshot.idempotency);
   internal.limitStore.restore(snapshot.fills);
   stack.killSwitch.restore(snapshot.killSwitch);
-  for (const entry of snapshot.idempotency) {
-    stack.submittedIntentIds.add(entry.intentId);
+  // Reconciliation coverage is derived from RECEIPTS, not idempotency
+  // rows: every journaled receipt — execution OR rejection (kill-switch,
+  // limits) — proves its intent was submitted. Rejection receipts have
+  // no 'recorded' idempotency row, so restoring the set from idempotency
+  // alone flagged every rejected intent as an orphan after a restart
+  // (observed in the ADR-015 drill). 'recorded' idempotency rows commit
+  // in the same transaction as their receipt, so receipts are a
+  // complete, duplicate-free source.
+  for (const receipt of snapshot.receipts) {
+    stack.submittedIntentIds.add(receipt.intentId);
   }
   logger.info(
     {
       receipts: snapshot.receipts.length,
+      submittedIntents: stack.submittedIntentIds.size,
       idempotency: snapshot.idempotency.length,
       fills: snapshot.fills.length,
       killSwitch: snapshot.killSwitch.length,

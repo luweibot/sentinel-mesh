@@ -161,10 +161,13 @@ prerequisite for that step.
      receipt `e243c82e`; normal pipeline restored.
   Also verified: `durable-state.test.ts` (journal sleep/wake regression) green 9/9
   locally; uptime pinger keeps the free-tier service warm (no mid-cycle sleeps).
-  Observation, non-blocking: `/api/v1/execution/reconcile` lists receipts from
-  pre-restart test runs as "orphan" because the submitted-intent-ids set is
-  in-memory only (cross-check cosmetic; executor idempotency itself restores
-  from Postgres). Worth durably restoring that set before EXECUTION_MODE=live.
+  Observation, non-blocking: `/api/v1/execution/reconcile` listed receipts from
+  pre-restart test runs as "orphan" because the submitted-intent-ids set
+  restored from idempotency rows only (cross-check cosmetic; executor
+  idempotency itself restores from Postgres). FIXED 2026-10-20:
+  restoreGuardState now derives the set from journaled RECEIPTS — which
+  cover executions AND rejections — so reconciliation coverage survives
+  restarts; regression test in apps/orchestrator/tests/durable-state.test.ts.
   Operator drill recorded; global switch left **clear**.
 
 - **ADR-016 (2026-10-20): Live execution mode released behind deliberate env gate.**
