@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Shell, PageHead } from "../../components/nav";
 import {
+  API_BASE,
   ConfirmButton,
   DataTable,
   DataSourceBadge,
@@ -28,8 +29,6 @@ interface RegistrySkillRow {
   isActive: boolean;
   declaredCapabilities: string[];
 }
-
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:3001";
 
 const DEMO_SKILL_ID = "demo-liquidity-snapshot";
 const DEMO_SKILL_MD = `# demo-liquidity-snapshot
