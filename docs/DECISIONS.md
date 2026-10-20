@@ -144,3 +144,25 @@ prerequisite for that step.
   Reconciliation now flags duplicate execution as >1 paper-filled receipt per
   intent, so legitimate reject-then-retry flows are not false positives.
   Rationale and adversarial tests: docs/SECURITY-AUDIT.md.
+
+- **ADR-015 (2026-10-20): Kill-switch drill executed on production (checklist item 8).**
+  Ran the drill against the live orchestrator (sentinel-mesh-orchestrator.onrender.com,
+  paper mode, durable Postgres journal):
+  1. Baseline snapshot `global: clear`; engaged via one
+     `POST /api/v1/execution/kill-switch {scope: global, state: engaged}`
+     (state journaled before applied — an ENGAGED switch cannot be lost to a restart).
+  2. Authorized intent `a2c74839` submitted while engaged → receipt
+     `a158e0b0` **rejected `kill-switch-engaged`** (fail-closed, journaled).
+  3. Duplicate resubmission of the same intent after clear → rejected
+     (one decision per intent; idempotency holds).
+  4. Intent for an unconfigured user → rejected `user-limit-exceeded`
+     "no limit policy configured… refusing to execute" (fail-closed on missing state).
+  5. Authorized demo-user intent with switch clear → **paper-filled**
+     receipt `e243c82e`; normal pipeline restored.
+  Also verified: `durable-state.test.ts` (journal sleep/wake regression) green 9/9
+  locally; uptime pinger keeps the free-tier service warm (no mid-cycle sleeps).
+  Observation, non-blocking: `/api/v1/execution/reconcile` lists receipts from
+  pre-restart test runs as "orphan" because the submitted-intent-ids set is
+  in-memory only (cross-check cosmetic; executor idempotency itself restores
+  from Postgres). Worth durably restoring that set before EXECUTION_MODE=live.
+  Operator drill recorded; global switch left **clear**.

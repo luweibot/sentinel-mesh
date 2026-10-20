@@ -12,12 +12,15 @@ error message points to.
 - [ ] Trading keys present ONLY in the orchestrator runtime environment
       (never in git, never in the API service, never in the frontend).
 - [ ] Gas-funded wallets: Base ETH for EVM trades, SOL for Solana trades.
-- [ ] Durable journal: sleep/wake regression test green (state survives
+- [x] Durable journal: sleep/wake regression test green (state survives
       restarts; idempotency + spend caps restore from Postgres).
-- [ ] External uptime pinger so free-tier services never sleep mid-cycle.
+      (2026-10-20: durable-state.test.ts green 9/9.)
+- [x] External uptime pinger so free-tier services never sleep mid-cycle.
+      (2026-10-20: Sentinel Mesh Uptime Pinger workflow active.)
 - [ ] Zero-trust access (Cloudflare Access or equivalent) on API + dashboard.
-- [ ] Kill-switch drill executed and documented: operator can halt all
+- [x] Kill-switch drill executed and documented: operator can halt all
       execution in one call; fail-closed on missing journal state.
+      (2026-10-20: drill run on production orchestrator, ADR-015 in DECISIONS.md.)
 
 ## Release steps (in order)
 1. Owner confirms this checklist is satisfied and explicitly authorizes
