@@ -50,7 +50,7 @@ export function SiteNav(): React.JSX.Element {
     <header className="site-header">
       <div className="inner">
         <p className="brand">
-          Sentinel Mesh <span className="phase">paper phase</span>
+          Sentinel Mesh <span className="phase">mainnet</span>
         </p>
         <button
           type="button"
@@ -93,11 +93,11 @@ export function Shell({ children }: { children: React.ReactNode }): React.JSX.El
       <footer className="site-footer">
         <div className="shell" style={{ padding: 0 }}>
           <p style={{ margin: 0 }}>
-            Sentinel Mesh dashboard · read-only · paper trading only · no keys, secrets, or signing logic in this frontend.
+            Sentinel Mesh dashboard · read-only · no keys, secrets, or signing logic in this frontend.
           </p>
           <ul>
-            <li>Fixture data is deterministic mock output, clearly labeled.</li>
-            <li>No production metrics are shown.</li>
+            <li>Live data from the production orchestrator on Base and Solana mainnets.</li>
+            <li>Paid API access settles per call in USDC via x402.</li>
           </ul>
         </div>
       </footer>

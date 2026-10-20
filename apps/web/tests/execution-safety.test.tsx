@@ -62,7 +62,7 @@ describe("execution safety page", () => {
     render(<ExecutionPage />);
     await userEvent.click(screen.getByRole("button", { name: /submit authorized intent/i }));
     // Second step: explicit confirm.
-    await userEvent.click(screen.getByRole("button", { name: /confirm: submit this paper intent/i }));
+    await userEvent.click(screen.getByRole("button", { name: /confirm: submit this intent/i }));
     await waitFor(() => expect(screen.getByText("paper-filled")).toBeTruthy());
   });
 });

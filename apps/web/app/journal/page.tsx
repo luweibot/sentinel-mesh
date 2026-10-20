@@ -95,7 +95,7 @@ export default function JournalPage(): React.JSX.Element {
     <Shell>
       <PageHead
         title="Copy-trading journal"
-        lede="Every intent submitted to the guarded paper executor, with its authorization state, outcome, and typed fail-closed rejection codes. Paper receipts are mock-signed artifacts, never transactions."
+        lede="Every intent submitted to the guarded executor, with its authorization state, outcome, and typed fail-closed rejection codes. Each entry is a durable journal record — the source of truth for settlement and reconciliation."
         right={<DataSourceBadge source="service" />}
       />
       <div className="chain-filter" role="group" aria-label="Filter receipts">
@@ -107,7 +107,7 @@ export default function JournalPage(): React.JSX.Element {
         </button>
       </div>
       <DataTable
-        caption={`${filtered.length} paper receipts from the guarded executor`}
+        caption={`${filtered.length} receipts from the guarded executor`}
         columns={columns}
         rows={filtered}
         rowKey={(row) => row.receiptId}

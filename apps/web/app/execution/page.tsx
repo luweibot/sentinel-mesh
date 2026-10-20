@@ -153,7 +153,7 @@ export default function ExecutionPage(): React.JSX.Element {
     <Shell>
       <PageHead
         title="Execution safety"
-        lede="The guarded execution pipeline: kill switches, exact-bound short-lived authorizations, and reconciliation. All execution is paper — mock-signed artifacts that are never broadcast."
+        lede="The guarded execution pipeline: kill switches, exact-bound short-lived authorizations, and reconciliation. Every intent is fail-closed unless a matching short-lived authorization is presented and consumed."
         right={<DataSourceBadge source="service" />}
       />
 
@@ -221,11 +221,11 @@ export default function ExecutionPage(): React.JSX.Element {
       </div>
 
       <div className="card">
-        <h2>Guarded paper trade demo</h2>
+        <h2>Guarded execution demo</h2>
         <p className="tiny muted">
           Step 1: an authorization is minted for the exact intent parameters (60s TTL, single use). Step 2: submitting runs the full guard
           pipeline — kill switch, idempotency, policy engine, authorization binding, limits, liquidity, simulation, fee/slippage bounds, and
-          chain-specific transaction validation — before a mock-signed paper receipt. Nothing is broadcast, ever.
+          chain-specific transaction validation — before a signed receipt is produced. In paper mode the receipt is a mock-signed artifact; in live mode the same pipeline broadcasts a real transaction.
         </p>
         <div style={{ display: "flex", gap: "0.6rem", flexWrap: "wrap", alignItems: "center" }}>
           <button type="button" className="btn" disabled={busy} onClick={() => void mintAuthorization()}>
@@ -233,8 +233,8 @@ export default function ExecutionPage(): React.JSX.Element {
           </button>
           <ConfirmButton
             label="2. Submit authorized intent"
-            confirmLabel="Confirm: submit this paper intent"
-            description="This submits a PAPER trade: it creates a mock-signed receipt, never a transaction. The authorization is consumed on use."
+            confirmLabel="Confirm: submit this intent"
+            description="Submits an intent through the guarded executor. The exact-bound authorization is consumed on use and every step is journaled."
             disabled={busy}
             onConfirm={() => void submitIntent()}
           />

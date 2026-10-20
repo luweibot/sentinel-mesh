@@ -12,10 +12,27 @@ interface HealthInfo {
   uptimeSec?: number;
 }
 
+interface ReadyInfo {
+  status: string;
+  checks?: {
+    storage?: { mode?: string };
+    policy?: { mode?: string; executionMode?: string };
+    database?: { configured?: boolean; status?: string };
+  };
+}
+
+interface PaymentsCatalog {
+  mode: string;
+  receiver: string;
+  asset: string;
+  services: Array<{ serviceId: string; priceUsd: string }>;
+}
+
 export default function OverviewPage(): React.JSX.Element {
-  const [api, setApi] = useState<HealthInfo | null>(null);
-  const [agentCount, setAgentCount] = useState<number | null>(null);
   const [orchestrator, setOrchestrator] = useState<HealthInfo | null>(null);
+  const [ready, setReady] = useState<ReadyInfo | null>(null);
+  const [payments, setPayments] = useState<PaymentsCatalog | null>(null);
+  const [agentCount, setAgentCount] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -23,13 +40,15 @@ export default function OverviewPage(): React.JSX.Element {
     setLoading(true);
     setError(null);
     try {
-      const [apiHealth, orchHealth, agents] = await Promise.all([
-        getJson<HealthInfo>(`${API_BASE}/health`),
+      const [orchHealth, readyInfo, catalog, agents] = await Promise.all([
         getJson<HealthInfo>(`${ORCHESTRATOR_BASE}/health`),
+        getJson<ReadyInfo>(`${ORCHESTRATOR_BASE}/health/ready`),
+        getJson<PaymentsCatalog>(`${ORCHESTRATOR_BASE}/api/v1/payments/catalog`),
         getJson<{ total: number }>(`${API_BASE}/api/v1/agents`),
       ]);
-      setApi(apiHealth);
       setOrchestrator(orchHealth);
+      setReady(readyInfo);
+      setPayments(catalog);
       setAgentCount(agents.total);
     } catch (err) {
       setError(err instanceof Error ? `${err.message} — is the service running?` : String(err));
@@ -42,11 +61,13 @@ export default function OverviewPage(): React.JSX.Element {
     void load();
   }, [load]);
 
+  const executionMode = ready?.checks?.policy?.executionMode ?? "…";
+
   return (
     <Shell>
       <PageHead
         title="Overview"
-        lede="Collaborative multi-agent Web3 intelligence and guarded-trading platform. This build is paper-only: agents observe deterministic fixture data, and the only executor is the guarded paper executor with mock signing."
+        lede="Collaborative multi-agent Web3 intelligence platform, live on Base and Solana mainnets. Paid API access settles per call in USDC via x402; guarded execution runs behind exact-bound authorizations, spend caps, a durable journal, and a kill switch."
         right={<DataSourceBadge source="service" />}
       />
 
@@ -69,38 +90,22 @@ export default function OverviewPage(): React.JSX.Element {
         </div>
         <div className="stat">
           <div className="label">Chains observed</div>
-          <div className="value">4</div>
-          <span className="badge tone-warn">base · ethereum · solana×2</span>
+          <div className="value">2</div>
+          <span className="badge tone-warn">base · solana</span>
         </div>
         <div className="stat">
           <div className="label">Execution mode</div>
-          <div className="value">paper</div>
-          <span className="badge tone-warn">mock signing, never broadcast</span>
+          <div className="value">{executionMode}</div>
+          <span className="badge tone-warn">guarded executor, durable journal</span>
         </div>
         <div className="stat">
-          <div className="label">Live trading</div>
-          <div className="value">disabled</div>
-          <span className="badge tone-ok">rejected at config load</span>
+          <div className="label">x402 payments</div>
+          <div className="value">{payments ? payments.mode : "…"}</div>
+          <span className="badge tone-ok">{payments ? `USDC per call · ${payments.services.length} services` : "loading catalog…"}</span>
         </div>
       </div>
 
       <div className="grid" style={{ marginTop: "1rem" }}>
-        <div className="card">
-          <h2>API service</h2>
-          {api ? (
-            <>
-              <p style={{ margin: "0.2rem 0" }}>
-                <span className={`badge ${api.status === "ok" ? "tone-ok" : "tone-danger"}`}>{api.status}</span>{" "}
-                <code>{api.service}</code>
-              </p>
-              <p className="tiny muted" style={{ margin: "0.2rem 0 0" }}>
-                v{api.version} · {API_BASE} · uptime {api.uptimeSec ?? "?"}s
-              </p>
-            </>
-          ) : (
-            <p className="muted">not reachable</p>
-          )}
-        </div>
         <div className="card">
           <h2>Orchestrator service</h2>
           {orchestrator ? (
@@ -117,12 +122,29 @@ export default function OverviewPage(): React.JSX.Element {
             <p className="muted">not reachable</p>
           )}
         </div>
+        <div className="card">
+          <h2>Paid API (x402)</h2>
+          {payments ? (
+            <>
+              <p style={{ margin: "0.2rem 0" }}>
+                <span className={`badge ${payments.mode === "live" ? "tone-ok" : "tone-warn"}`}>{payments.mode}</span>{" "}
+                <code>{payments.services.length} metered services</code>
+              </p>
+              <p className="tiny muted" style={{ margin: "0.2rem 0 0" }}>
+                Receiver <code>{payments.receiver.slice(0, 10)}…</code> · {payments.asset}
+              </p>
+            </>
+          ) : (
+            <p className="muted">catalog not reachable</p>
+          )}
+        </div>
       </div>
 
       <div className="notice">
-        <strong>Guardrails, always on in this phase:</strong> chain adapters are deterministic in-process fixtures (no RPC calls), the only
-        signer is a mock signer, guarded execution fails closed without a short-lived exact-bound authorization, and config rejects
-        <code> EXECUTION_MODE=live</code>. No component in this repository can broadcast a transaction.
+        <strong>Safety architecture, always on:</strong> execution is fail-closed without a short-lived exact-bound authorization,
+        every intent and settlement is recorded in the durable Postgres journal, per-user spend caps are enforced before any
+        broadcast, a global kill switch rejects execution when engaged, and the treasury auto-converts settled USDC revenue into
+        just-enough gas. This dashboard is read-only: it holds no keys, secrets, or signing logic.
       </div>
     </Shell>
   );

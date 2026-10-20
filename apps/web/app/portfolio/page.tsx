@@ -41,21 +41,20 @@ export default function PortfolioPage(): React.JSX.Element {
         </div>
       ) : null}
       <div className="state">
-        <div className="state-title">No portfolio data exists in this phase</div>
+        <div className="state-title">No attributed fills yet</div>
         <p>
-          Portfolio analytics require attributed fills. Sentinel Mesh only produces paper receipts from the guarded executor, and none are
-          attributed to a portfolio yet, so this page shows an honest empty state instead of fabricated performance metrics.
+          Portfolio analytics require attributed fills from the guarded executor. None are attributed to a portfolio yet, so this page shows an honest empty state instead of fabricated performance metrics.
         </p>
         {data ? <p className="tiny">{data.detail}</p> : null}
         <p className="tiny">
-          Paper trade receipts that do exist are listed on the{" "}
+          Receipts that do exist are listed on the{" "}
           <Link href="/journal">copy-trading journal</Link> page.
         </p>
       </div>
       <div className="card">
         <h2>What will be here later</h2>
         <ul className="tiny muted" style={{ paddingLeft: "1rem" }}>
-          <li>Open positions per chain, derived from attributed paper receipts (still no live trading).</li>
+          <li>Open positions per chain, derived from attributed executor receipts.</li>
           <li>Realized vs. simulated PnL, with the simulation-vs-execution gap made explicit.</li>
           <li>Exposure and loss-cap utilization against the per-user limit policy.</li>
         </ul>
