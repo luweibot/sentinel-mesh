@@ -75,6 +75,20 @@ export class IdempotencyRegistry {
       this.ledger.set(entry.intentId, { status: "recorded", intentHash: entry.intentHash, receiptId: entry.receiptId });
     }
   }
+
+  /**
+   * SECURITY (audit 2026-10-21): uncertain live broadcasts (the tx may
+   * still land onchain) restore as IN-FLIGHT locks: an identical
+   * resubmission must be rejected as a conflict until an operator
+   * resolves the onchain outcome (executor.resolveUncertain).
+   */
+  restoreUncertain(entries: { intentId: string; intentHash: string }[]): void {
+    for (const entry of entries) {
+      if (!this.ledger.has(entry.intentId)) {
+        this.ledger.set(entry.intentId, { status: "in-flight", intentHash: entry.intentHash });
+      }
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------

@@ -25,6 +25,57 @@ import {
   DeterministicMockSigner,
   GuardedExecutionService,
 } from "../src/index.js";
+import type { TradeBroadcastPort } from "../src/broadcast.js";
+import type { GuardStateJournal, GuardStateSnapshot, UncertainJournalEntry } from "../src/journal.js";
+import type { ExecutionReceipt as ReceiptType } from "@sentinel-mesh/contracts";
+
+/** In-memory journal fake recording every durable write (audit 2026-10-21 tests). */
+class FakeExecutionJournal implements GuardStateJournal {
+  readonly receipts = new Map<string, ReceiptType>();
+  readonly recordedCommits: string[] = [];
+  readonly aborts: string[] = [];
+  readonly uncertain = new Map<string, UncertainJournalEntry>();
+  readonly resolvedUncertain: string[] = [];
+  readonly fills = new Map<string, { fillId: string; released: boolean }>();
+
+  async restore(): Promise<GuardStateSnapshot> {
+    return {
+      receipts: [...this.receipts.values()],
+      idempotency: [],
+      fills: [],
+      killSwitch: [],
+      spendCaps: [],
+      uncertain: [...this.uncertain.values()],
+    };
+  }
+  async recordCommit(receipt: ReceiptType, entry: { intentId: string; receiptId: string }): Promise<void> {
+    this.receipts.set(receipt.receiptId, receipt);
+    this.recordedCommits.push(entry.intentId);
+  }
+  async recordRejection(receipt: ReceiptType): Promise<void> {
+    this.receipts.set(receipt.receiptId, receipt);
+  }
+  async recordAbort(intentId: string): Promise<void> {
+    this.aborts.push(intentId);
+  }
+  async recordUncertain(entry: UncertainJournalEntry): Promise<void> {
+    this.uncertain.set(entry.intentId, entry);
+  }
+  async resolveUncertain(intentId: string): Promise<void> {
+    this.uncertain.delete(intentId);
+    this.resolvedUncertain.push(intentId);
+  }
+  async recordFill(fill: { fillId: string }): Promise<void> {
+    this.fills.set(fill.fillId, { fillId: fill.fillId, released: false });
+  }
+  async releaseFill(fillId: string): Promise<void> {
+    const fill = this.fills.get(fillId);
+    if (fill) {
+      fill.released = true;
+    }
+  }
+  async recordKillSwitch(): Promise<void> {}
+}
 
 const EVM_TOKEN_IN = "0xabc0000000000000000000000000000000000001";
 const EVM_TOKEN_OUT = "0xdef0000000000000000000000000000000000002";
@@ -57,7 +108,13 @@ interface Harness {
   limitStore: InMemoryLimitStore;
 }
 
-function buildHarness(overrides?: { policyEngine?: PolicyEngine; minPoolTvlUsdCents?: number; mode?: "disabled" | "paper" }): Harness {
+function buildHarness(overrides?: {
+  policyEngine?: PolicyEngine;
+  minPoolTvlUsdCents?: number;
+  mode?: "disabled" | "paper" | "live";
+  broadcaster?: TradeBroadcastPort;
+  journal?: GuardStateJournal;
+}): Harness {
   const logger = silentLogger();
   const store = new InMemoryAuthorizationStore();
   const authorizations = new AuthorizationService(store, clock);
@@ -71,7 +128,7 @@ function buildHarness(overrides?: { policyEngine?: PolicyEngine; minPoolTvlUsdCe
   policies.setUserLimits("user-1", USER_LIMITS);
   policies.setStrategyLimits("strategy-1", { maxTradeUsdCents: 800_000, maxTradesPerDay: 5 });
   const limitStore = new InMemoryLimitStore(clock);
-  const limits = new LimitsService(policies, limitStore, clock);
+  const limits = new LimitsService(policies, limitStore, clock, overrides?.journal);
   const simulator = new DeterministicPaperSimulator();
   const policyEngine = overrides?.policyEngine ??
     new DeterministicPolicyEngine({
@@ -94,6 +151,8 @@ function buildHarness(overrides?: { policyEngine?: PolicyEngine; minPoolTvlUsdCe
     liquidity: fixtureProviders().liquidity,
     notionalUsdCentsFor: (intent) => Math.ceil(Number(BigInt(intent.amountInRaw) / 10n ** 6n)),
     mode: { mode: overrides?.mode ?? "paper" },
+    ...(overrides?.broadcaster ? { broadcaster: overrides.broadcaster, slippageBps: 100 } : {}),
+    ...(overrides?.journal ? { journal: overrides.journal } : {}),
   });
 
   return { authorizations, executor, simulator, killSwitch, ledger, limits, limitStore };
@@ -695,5 +754,118 @@ describe("security audit regressions: limit caps must be reserved atomically", (
     expect(rejected.rejectionCode).toBe("position-cap-exceeded");
     // Open position must never exceed the configured cap.
     expect(limitStore.openPositionUsdCents("user-1")).toBeLessThanOrEqual(10_000);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Uncertain live broadcasts (audit 2026-10-21)
+// ---------------------------------------------------------------------------
+describe("live uncertain broadcasts: the in-flight lock is retained (audit 2026-10-21)", () => {
+  function uncertainHarness(journal: FakeExecutionJournal, script: Array<"throw" | { status: "success" }>) {
+    let calls = 0;
+    const broadcaster: TradeBroadcastPort = {
+      quote: async () => ({ quotedOutRaw: "2000000", feeUsdCents: 1, priceImpactBps: 10, detail: "test quote" }),
+      execute: async () => {
+        const step = script[Math.min(calls, script.length - 1)];
+        calls += 1;
+        if (step === "throw") {
+          throw new Error("rpc connection reset mid-flight");
+        }
+        return { txHash: "0xlivehash", status: "success", executedOutRaw: "2000000", feeUsdCents: 2, detail: "filled" };
+      },
+    };
+    const harness = buildHarness({ mode: "live", broadcaster, journal });
+    return { harness, broadcastCalls: () => calls };
+  }
+
+  it("keeps the lock: an identical resubmission is rejected without a second broadcast", async () => {
+    const journal = new FakeExecutionJournal();
+    const { harness, broadcastCalls } = uncertainHarness(journal, ["throw"]);
+    const intent = baseIntent();
+    const auth = await authorized(harness, intent);
+
+    const receipt = await harness.executor.submitIntent(intent, auth);
+    expect(receipt.status).toBe("rejected");
+    expect(receipt.rejectionCode).toBe("execution-uncertain");
+    expect(broadcastCalls()).toBe(1);
+
+    // the uncertain state is locked in memory and journaled durably
+    expect(harness.executor.listUncertain().map((e) => e.intentId)).toEqual([intent.intentId]);
+    expect(journal.uncertain.keys()).toContain(intent.intentId);
+    expect(journal.aborts).toHaveLength(0);
+
+    // the reserved cap fill was NOT released
+    const entry = harness.executor.listUncertain()[0]!;
+    expect(entry.reservedFillId).not.toBe("");
+    expect(journal.fills.get(entry.reservedFillId)?.released).toBe(false);
+
+    // an identical resubmission must not double-broadcast while the tx may still land
+    const replay = await harness.executor.submitIntent(intent, auth);
+    expect(replay.status).toBe("rejected");
+    expect(replay.rejectionCode).toBe("duplicate-submission-conflict");
+    expect(broadcastCalls()).toBe(1); // still exactly one broadcast ever
+  });
+
+  it("resolve(landed=true) commits a live-filled receipt and duplicates replay it", async () => {
+    const journal = new FakeExecutionJournal();
+    const { harness, broadcastCalls } = uncertainHarness(journal, ["throw"]);
+    const intent = baseIntent();
+    const auth = await authorized(harness, intent);
+
+    const uncertain = await harness.executor.submitIntent(intent, auth);
+    expect(uncertain.rejectionCode).toBe("execution-uncertain");
+
+    const resolved = await harness.executor.resolveUncertain(intent.intentId, {
+      landed: true,
+      txHash: "0xonchainreceipt",
+      executedOutRaw: "1900000",
+      feeUsdCents: 3,
+    });
+    expect(resolved?.status).toBe("live-filled");
+    expect(resolved?.txHash).toBe("0xonchainreceipt");
+    expect(harness.executor.listUncertain()).toHaveLength(0);
+    expect(journal.resolvedUncertain).toEqual([intent.intentId]);
+
+    // duplicate submission now REPLAYS the resolved receipt (no re-execution)
+    const replay = await harness.executor.submitIntent(intent, auth);
+    expect(replay.status).toBe("live-filled");
+    expect(replay.receiptId).toBe(resolved?.receiptId);
+    expect(broadcastCalls()).toBe(1);
+  });
+
+  it("resolve(landed=false) releases the lock and cap; resubmission executes", async () => {
+    const journal = new FakeExecutionJournal();
+    const { harness, broadcastCalls } = uncertainHarness(journal, ["throw", { status: "success" }]);
+    const intent = baseIntent();
+
+    const uncertain = await harness.executor.submitIntent(intent, await authorized(harness, intent));
+    expect(uncertain.rejectionCode).toBe("execution-uncertain");
+
+    const entry = harness.executor.listUncertain()[0]!;
+    const out = await harness.executor.resolveUncertain(intent.intentId, { landed: false });
+    expect(out).toBeNull();
+    // the cap reservation was released (journal releaseFill called)
+    expect(journal.fills.get(entry.reservedFillId)?.released).toBe(true);
+    expect(harness.executor.listUncertain()).toHaveLength(0);
+
+    // the released lock allows a fresh execution of the same intentId
+    const resubmitted = await harness.executor.submitIntent(intent, await authorized(harness, intent));
+    expect(resubmitted.status).toBe("live-filled");
+    expect(broadcastCalls()).toBe(2);
+  });
+
+  it("restoreUncertain re-arms the lock from the durable journal (restart safety)", async () => {
+    const journal = new FakeExecutionJournal();
+    const { harness } = uncertainHarness(journal, ["throw"]);
+    const intent = baseIntent();
+    await harness.executor.submitIntent(intent, await authorized(harness, intent));
+
+    // simulate a restart: a fresh executor restores the uncertain journal
+    const restarted = uncertainHarness(new FakeExecutionJournal(), ["throw"]).harness;
+    restarted.executor.restoreUncertain(await journal.restore().then((s) => s.uncertain));
+    expect(restarted.executor.listUncertain().map((e) => e.intentId)).toEqual([intent.intentId]);
+    const replay = await restarted.executor.submitIntent(intent, await authorized(restarted, intent));
+    expect(replay.status).toBe("rejected");
+    expect(replay.rejectionCode).toBe("duplicate-submission-conflict");
   });
 });

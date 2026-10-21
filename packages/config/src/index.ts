@@ -58,6 +58,14 @@ export const AppConfig = z
      *          API content is unlocked. Live mode requires the strict settled-gate.
      */
     paymentsMode: z.enum(["paper", "live"]).default("paper"),
+    /**
+     * Operator bearer token guarding state-changing control routes
+     * (execution intents/authorizations/kill-switch, skills lifecycle,
+     * task and workflow control; audit 2026-10-21). ENFORCED when set;
+     * unset leaves the routes open with a visible warning header (dev /
+     * paper). Minimum 32 chars so weak tokens fail validation at boot.
+     */
+    operatorApiToken: z.string().min(32).optional(),
     /** Public Base JSON-RPC endpoint used by the live facilitator (HTTPS only). */
     baseRpcUrl: z.string().url().default("https://mainnet.base.org"),
     /**
@@ -155,6 +163,7 @@ function pick(env: NodeJS.ProcessEnv) {
     redisUrl: env.REDIS_URL === "" ? undefined : env.REDIS_URL,
     paymentsReceiverAddress: env.PAYMENTS_RECEIVER_ADDRESS,
     paymentsMode: env.PAYMENTS_MODE,
+    operatorApiToken: env.OPERATOR_API_TOKEN === undefined || env.OPERATOR_API_TOKEN === "" ? undefined : env.OPERATOR_API_TOKEN,
     baseRpcUrl: env.BASE_RPC_URL,
     baseUsdcAddress: env.BASE_USDC_ADDRESS,
     treasuryEnabled: env.TREASURY_ENABLED === undefined ? undefined : String(env.TREASURY_ENABLED).toLowerCase(),

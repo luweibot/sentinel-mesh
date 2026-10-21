@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { generatePrivateKey, privateKeyToAccount, signTypedData } from "viem/accounts";
+import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
 import { LiveFacilitator, USDC_BASE_ADDRESS, type RpcCaller } from "../src/live-facilitator.js";
 import { X402_ASSET_BASE_USDC } from "../src/catalog.js";
 

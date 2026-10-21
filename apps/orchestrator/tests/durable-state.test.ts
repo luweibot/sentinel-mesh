@@ -18,6 +18,7 @@ import {
   type GuardStateSnapshot,
   type KillSwitchState,
   type RestoredFill,
+  type UncertainJournalEntry,
 } from "@sentinel-mesh/execution";
 import type { SpendCapStateJournal } from "@sentinel-mesh/orchestrator";
 
@@ -59,6 +60,7 @@ class FakeGuardStateJournal implements GuardStateJournal {
   readonly idempotency = new Map<string, { intentHash: string; status: "in-flight" | "recorded"; receiptId?: string }>();
   readonly fills = new Map<string, RestoredFill & { released: boolean }>();
   readonly killSwitch = new Map<string, KillSwitchState>();
+  readonly uncertain = new Map<string, UncertainJournalEntry>();
 
   async restore(): Promise<GuardStateSnapshot> {
     // Same as the PG journal: in-flight rows belong to a dead process.
@@ -80,6 +82,7 @@ class FakeGuardStateJournal implements GuardStateJournal {
       fills: [...this.fills.values()].filter((fill) => !fill.released).map(({ released: _released, ...fill }) => fill),
       killSwitch: [...this.killSwitch.entries()].map(([scope, state]) => ({ scope, state })),
       spendCaps: [],
+      uncertain: [...this.uncertain.values()],
     };
   }
 
@@ -94,6 +97,14 @@ class FakeGuardStateJournal implements GuardStateJournal {
 
   async recordAbort(intentId: string): Promise<void> {
     this.idempotency.delete(intentId);
+  }
+
+  async recordUncertain(entry: UncertainJournalEntry): Promise<void> {
+    this.uncertain.set(entry.intentId, entry);
+  }
+
+  async resolveUncertain(intentId: string): Promise<void> {
+    this.uncertain.delete(intentId);
   }
 
   async recordFill(fill: RestoredFill): Promise<void> {
@@ -307,6 +318,47 @@ it("reconciliation coverage survives a restart: rejected intents are not orphans
     expect(receipt.status).toBe("paper-filled");
     const fills = (await after.executor.receiptsForIntent(intent.intentId)).filter((r) => r.status === "paper-filled");
     expect(fills).toHaveLength(1);
+  });
+
+  it("an uncertain live broadcast survives a restart as a BLOCKING lock (audit 2026-10-21)", async () => {
+    const journal = new FakeGuardStateJournal();
+    // simulate a live broadcast whose outcome was unknown (the tx may
+    // still land onchain): the executor journaled an uncertain entry and
+    // its cap reservation survived as a released=false fill
+    const intent = freshIntent();
+    journal.uncertain.set(intent.intentId, {
+      intentId: intent.intentId,
+      intentHash: intentHash(intent),
+      intent,
+      authorizationId: "auth-uncertain-1",
+      reservedFillId: "fill-uncertain-1",
+      decidedAt: clock.now().toISOString(),
+    });
+    journal.fills.set("fill-uncertain-1", {
+      fillId: "fill-uncertain-1",
+      userId: DEMO_USER,
+      strategyId: DEMO_STRATEGY,
+      chain: "base",
+      notionalUsdCents: 1,
+      pnlUsdCents: 0,
+      day: clock.now().toISOString().slice(0, 10),
+      released: false,
+    });
+
+    const after = await boot(journal);
+    await after.setKillSwitch("global", null, "clear");
+    // the restored lock blocks an identical resubmission: the tx may
+    // still land onchain and must never be double-broadcast
+    const replay = await execute(after, intent);
+    expect(replay.status).toBe("rejected");
+    expect(replay.rejectionCode).toBe("duplicate-submission-conflict");
+
+    // after onchain reconciliation the operator resolves not-landed:
+    // the lock and the cap reservation release, resubmission executes
+    await after.executor.resolveUncertain(intent.intentId, { landed: false });
+    journal.resolveUncertain(intent.intentId);
+    const resubmitted = await execute(after, intent);
+    expect(resubmitted.status).toBe("paper-filled");
   });
 });
 

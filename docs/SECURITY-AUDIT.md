@@ -99,6 +99,67 @@ sign-off per docs/EXECUTION.md, which this report does not constitute.
 3. **Decision**: keep `EXECUTION_MODE=paper` in production until the docs/EXECUTION.md go-live checklist is independently signed off.
 4. **Later phases**: KMS/HSM signer design, real x402 SDK + facilitator allowlist, out-of-process skill sandbox — none of these can be papered over by config.
 
+## Second review pass (2026-10-21): uncertain broadcasts + operator auth
+
+A second deep review of the guard pipeline found two further issues. Both
+are fixed in code with regression tests.
+
+### CRITICAL — an uncertain live broadcast released its idempotency lock
+
+A live broadcast that throws mid-flight (RPC reset, timeout) is neither a
+confirmed fill nor a definitive failure: the transaction may STILL LAND
+onchain. The executor classified it `execution-uncertain` and then took
+the ordinary rejection path, which **aborted the in-flight idempotency
+lock and released the cap reservation**. An identical resubmission was
+therefore accepted while the first transaction could still land: two
+broadcasts, one intent, double spend.
+
+- **Fix:**
+  - `execution-uncertain` now KEEPS the in-flight lock and the cap
+    reservation, and journals the uncertain state durably
+    (`guard_uncertain`, migration `007_guard_uncertain.sql`).
+  - Uncertain rows survive restarts (unlike ordinary in-flight rows,
+    which are dropped as orphans): `restoreGuardState` re-arms both the
+    executor's resolution map and the idempotency registry lock, so a
+    restarted process cannot resubmit a possibly-landed transaction.
+  - Release requires an explicit operator action after onchain
+    reconciliation: `GET /api/v1/execution/uncertain` lists locked
+    broadcasts, `POST /api/v1/execution/uncertain/resolve` with
+    `{ landed: true, txHash }` commits a `live-filled` receipt (identical
+    duplicates then replay it) or `{ landed: false }` releases the lock
+    and cap reservation.
+- **Tests:** five new cases in `packages/execution/tests/execution.test.ts`
+  (lock retention without a second broadcast, landed resolution, not-landed
+  release, restart re-arming) plus a restart test in
+  `apps/orchestrator/tests/durable-state.test.ts`.
+
+### HIGH — state-changing routes were unauthenticated
+
+Every control route (execution intents and authorizations, the kill
+switch, uncertain resolution, the skills lifecycle, task and workflow
+control) accepted unauthenticated POSTs from anyone who could reach the
+service. The x402 gate covers priced CONTENT routes only; it is not an
+authorization boundary for control actions.
+
+- **Fix:** an operator bearer-token hook (`OPERATOR_API_TOKEN`, min 32
+  chars) now guards the enumerated control routes with a constant-time
+  comparison. Enforcement is automatic once the variable is set; while it
+  is unset the routes stay open (dev/paper) and every state-changing
+  response carries an `x-auth-warning` header, so the gap is visible
+  rather than silent.
+- **Remaining deployment step (not code):** set `OPERATOR_API_TOKEN` in
+  the Render dashboard (`openssl rand -hex 32`), and put Cloudflare Access
+  in front of both public URLs so browser clients authenticate at the
+  edge. Once the token is set, dashboard write-actions must go through the
+  Access boundary or send the token.
+
 ## Bottom line
 
-Code-level audit actions are complete: both exploitable races fixed with regression tests, all dependency advisories cleared, deployment config repaired, full suite green (17/17 files, 253 tests, lint clean, build clean, runtime smoke healthy). What remains are deployment controls and the deliberate live-trading capabilities the platform intentionally does not implement. **Live trading remains NOT production-ready and requires independent security sign-off.**
+Code-level audit actions are complete: the exploitable races (including the
+uncertain-broadcast double-spend path) are fixed with regression tests, the
+control plane is authenticated via `OPERATOR_API_TOKEN`, all dependency
+advisories are cleared, deployment config is repaired, and the full suite is
+green (18/18 packages, 347 tests, lint clean, build clean, runtime smoke
+healthy). What remains are deployment controls and the deliberate live-trading
+capabilities the platform intentionally does not implement. **Live trading
+remains NOT production-ready and requires independent security sign-off.**

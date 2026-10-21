@@ -58,6 +58,23 @@ export interface RestoredSpendCaps {
   reservedUsdCents: number;
 }
 
+/**
+ * An uncertain live broadcast (audit 2026-10-21): the transaction may
+ * still land onchain, so the in-flight idempotency lock AND the cap
+ * reservation are RETAINED until an operator resolves the outcome after
+ * onchain reconciliation. Journaled durably so the lock survives a
+ * restart; cap reservations persist as released=false guard_fills rows.
+ */
+export interface UncertainJournalEntry {
+  intentId: string;
+  intentHash: string;
+  /** The full intent as submitted (JSON shape). */
+  intent: unknown;
+  authorizationId: string;
+  reservedFillId: string;
+  decidedAt: string;
+}
+
 /** Snapshot loaded from durable storage at boot, before serving traffic. */
 export interface GuardStateSnapshot {
   receipts: ExecutionReceipt[];
@@ -65,6 +82,8 @@ export interface GuardStateSnapshot {
   fills: RestoredFill[];
   killSwitch: RestoredKillSwitch[];
   spendCaps: RestoredSpendCaps[];
+  /** Uncertain live broadcasts restored as in-flight locks. */
+  uncertain: UncertainJournalEntry[];
 }
 
 /** An idempotency ledger entry as journaled for a completed intent. */
@@ -88,6 +107,11 @@ export interface GuardStateJournal {
   recordRejection(receipt: ExecutionReceipt): Promise<void>;
   /** Journal that an intent's in-flight reservation was aborted (allows resubmission). */
   recordAbort(intentId: string): Promise<void>;
+  /** Journal an uncertain live broadcast: the tx may still land onchain;
+   * the in-flight idempotency lock is RETAINED until resolveUncertain. */
+  recordUncertain(entry: UncertainJournalEntry): Promise<void>;
+  /** Remove the uncertain record after onchain reconciliation (operator). */
+  resolveUncertain(intentId: string): Promise<void>;
   /** Journal a cap fill reservation. */
   recordFill(fill: RestoredFill): Promise<void>;
   /** Journal that a fill reservation was released (rejected downstream). */

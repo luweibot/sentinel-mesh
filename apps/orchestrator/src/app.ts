@@ -1,5 +1,6 @@
 import Fastify, { type FastifyError, type FastifyInstance } from "fastify";
 import cors from "@fastify/cors";
+import { timingSafeEqual } from "node:crypto";
 import { z, ZodError } from "zod";
 import { createLogger, type Logger } from "@sentinel-mesh/logger";
 import type { AppConfig } from "@sentinel-mesh/config";
@@ -287,6 +288,43 @@ export function buildApp(deps: AppDeps): FastifyInstance {
       return { report };
     });
 
+    /** Uncertain live broadcasts: locked pending operator resolution
+     * (audit 2026-10-21). The in-flight idempotency lock and the cap
+     * reservation are RETAINED until resolve, so the tx cannot be
+     * double-broadcast while it may still land onchain. */
+    app.get("/api/v1/execution/uncertain", async () => ({
+      uncertain: execution.executor.listUncertain(),
+      semantics: "a live broadcast with an unknown outcome; the lock is retained until POST /api/v1/execution/uncertain/resolve after onchain reconciliation",
+    }));
+
+    /** Resolve an uncertain broadcast AFTER onchain reconciliation. */
+    app.post("/api/v1/execution/uncertain/resolve", async (request, reply) => {
+      const body = request.body as { intentId?: string; landed?: boolean; txHash?: string; executedOutRaw?: string; feeUsdCents?: number };
+      if (!body.intentId) {
+        reply.code(400).send({ error: "VALIDATION_FAILED", message: "intentId is required" });
+        return;
+      }
+      if (typeof body.landed !== "boolean") {
+        reply.code(400).send({ error: "VALIDATION_FAILED", message: "landed (boolean) is required" });
+        return;
+      }
+      if (body.landed && !body.txHash) {
+        reply.code(400).send({ error: "VALIDATION_FAILED", message: "landed=true requires the onchain txHash" });
+        return;
+      }
+      try {
+        const receipt = await execution.executor.resolveUncertain(body.intentId, {
+          landed: body.landed,
+          txHash: body.txHash,
+          executedOutRaw: body.executedOutRaw,
+          feeUsdCents: body.feeUsdCents,
+        });
+        reply.code(200).send({ resolved: true, landed: body.landed, receipt });
+      } catch (error) {
+        reply.code(404).send({ error: "NOT_FOUND", message: String(error) });
+      }
+    });
+
     /** Kill switch control: global, user, or strategy scope. */
     app.post("/api/v1/execution/kill-switch", async (request, reply) => {
       const body = request.body as { scope?: string; id?: string; state?: string };
@@ -504,6 +542,56 @@ export function buildApp(deps: AppDeps): FastifyInstance {
       });
     }
 
+
+  // -----------------------------------------------------------------
+  // Operator authentication for state-changing routes (audit 2026-10-21):
+  // the x402 gate below grants CONTENT access only — execution control
+  // (intents, authorizations, kill switch, uncertain resolution, skills
+  // lifecycle, task/workflow control) must additionally authenticate the
+  // operator with a bearer token. ENFORCED whenever OPERATOR_API_TOKEN is
+  // configured; when unset the routes stay open (dev/paper) and every
+  // state-changing response carries a warning header so the gap stays
+  // visible until the token is deployed.
+  // -----------------------------------------------------------------
+  const OPERATOR_PROTECTED_ROUTES = new Set([
+    "POST /api/v1/tasks",
+    "POST /api/v1/workflows/research",
+    "POST /api/v1/workflows/:runId/cancel",
+    "POST /api/v1/execution/authorizations",
+    "POST /api/v1/execution/intents",
+    "POST /api/v1/execution/uncertain/resolve",
+    "POST /api/v1/execution/kill-switch",
+    "POST /api/v1/skills/submit",
+    "POST /api/v1/skills/approve",
+    "POST /api/v1/skills/reject",
+    "POST /api/v1/skills/install",
+    "POST /api/v1/skills/rollback",
+  ]);
+  if (deps.config.operatorApiToken) {
+    const expected = Buffer.from(`Bearer ${deps.config.operatorApiToken}`);
+    app.addHook("preHandler", async (request, reply) => {
+      const route = `${request.method} ${request.routeOptions?.url ?? ""}`;
+      if (!OPERATOR_PROTECTED_ROUTES.has(route)) {
+        return;
+      }
+      const header = Buffer.from(String(request.headers["authorization"] ?? ""));
+      const ok = header.length === expected.length && timingSafeEqual(header, expected);
+      if (!ok) {
+        reply.code(401).send({
+          error: "UNAUTHORIZED",
+          message: "this route requires an operator bearer token (Authorization: Bearer <OPERATOR_API_TOKEN>)",
+        });
+      }
+    });
+  } else {
+    logger.warn("operator_api_token_not_configured: state-changing routes are unauthenticated (set OPERATOR_API_TOKEN; audit 2026-10-21)");
+    app.addHook("onSend", async (request, reply, payload) => {
+      if (request.method !== "GET" && request.method !== "HEAD") {
+        reply.header("x-auth-warning", "operator token not configured; state-changing routes are unauthenticated (set OPERATOR_API_TOKEN)");
+      }
+      return payload;
+    });
+  }
 
   const payments = deps.payments;
   if (payments) {

@@ -52,6 +52,14 @@ services:
         value: "50000"
       - key: ALLOWED_ORIGINS
         value: https://sentinel-mesh-phi.vercel.app
+      # Operator bearer token (audit 2026-10-21): state-changing control
+      # routes (execution intents/authorizations/kill-switch/uncertain
+      # resolution, skills lifecycle) 401 without it once set. Generate
+      # with: openssl rand -hex 32. While unset the routes stay open and
+      # responses carry an x-auth-warning header. Dashboard write-actions
+      # will need the Cloudflare Access boundary (or the token) once set.
+      - key: OPERATOR_API_TOKEN
+        sync: false
       # Treasury gas top-up: every settled x402 payment auto-converts just
       # enough USDC revenue into ETH gas (Base); SOL leg arms once the
       # USDC-per-SOL oracle is wired. Requires EVM_PRIVATE_KEY.

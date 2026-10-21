@@ -32,8 +32,11 @@ function mockTreasury(): TreasuryStack & { topUpGas: ReturnType<typeof vi.fn> } 
     enabled: true,
     settleDelayMs: 10,
     topUpGas: vi.fn(async () => ({
-      plan: { actions: [{ kind: "swapUsdcToEthOnBase", usdcRaw: 48001n }], notes: ["swap 48001 USDC raw → ETH gas"] },
-      receipts: [{ kind: "swapUsdcToEthOnBase", txHash: "0xtest", status: "success", gasUsed: "180000", minOutRaw: "1" }],
+      plan: {
+        actions: [{ kind: "swapUsdcToEthOnBase" as const, usdcRaw: 48001n }],
+        notes: ["swap 48001 USDC raw → ETH gas"],
+      },
+      receipts: [{ kind: "swapUsdcToEthOnBase" as const, txHash: "0xtest", status: "success" as const, gasUsed: "180000", minOutRaw: "1" }],
       ranAt: NOW.toISOString(),
     })),
   };

@@ -17,7 +17,7 @@ import {
   MockSolanaTradeAdapter,
 } from "@sentinel-mesh/chain-adapters";
 import { AuthorizationService, ExecutionRejectedError, intentHash, type Clock } from "./authorization.js";
-import type { GuardStateJournal } from "./journal.js";
+import type { GuardStateJournal, UncertainJournalEntry } from "./journal.js";
 import { IdempotencyRegistry, KillSwitch, ReconciliationLedger } from "./safety.js";
 import { LimitsService } from "./limits.js";
 import type { LiquidityProvider } from "@sentinel-mesh/chain-data";
@@ -106,6 +106,8 @@ export interface ExecutionPort {
 export class GuardedExecutionService implements ExecutionPort {
   private readonly evmAdapter = new MockEvmTradeAdapter();
   private readonly solanaAdapter = new MockSolanaTradeAdapter();
+  /** Uncertain live broadcasts locked pending operator resolution (audit 2026-10-21). */
+  private readonly uncertain = new Map<string, UncertainJournalEntry>();
 
   constructor(private readonly deps: GuardedExecutorDeps) {}
 
@@ -114,6 +116,9 @@ export class GuardedExecutionService implements ExecutionPort {
     // Cap reservation handle: set the moment limits pass, released on any
     // later rejection (see catch below). Null until reserved.
     let reservedFillId: string | null = null;
+    // Hoisted for the uncertain-broadcast lock in the catch below.
+    let intentHashValue: string | null = null;
+    let consumedAuthorizationId: string | undefined;
     try {
       TradeIntent.parse(intent);
     } catch (error) {
@@ -134,6 +139,7 @@ export class GuardedExecutionService implements ExecutionPort {
 
       // 2. idempotency
       const hash = intentHash(intent);
+      intentHashValue = hash;
       const priorReceiptId = this.deps.idempotency.begin(intent.intentId, hash);
       if (priorReceiptId) {
         const prior = await this.receiptById(priorReceiptId);
@@ -155,6 +161,7 @@ export class GuardedExecutionService implements ExecutionPort {
 
       // 4. authorization (exact bound, short-lived, single use)
       const consumed = await this.deps.authorizationService.consume(authorization, intent);
+      consumedAuthorizationId = consumed.authorizationId;
 
       // 5. limits — SECURITY (audit 2026-10-18): the cap check AND the fill
       // reservation happen in one synchronous step so two concurrent intents
@@ -276,6 +283,33 @@ export class GuardedExecutionService implements ExecutionPort {
       this.deps.logger.info({ intentId: intent.intentId, receiptId: receipt.receiptId, chain: intent.chain }, "execution_paper_filled");
       return receipt;
     } catch (error) {
+      // SECURITY (audit 2026-10-21): an UNCERTAIN live broadcast (the tx
+      // may still land onchain) must keep BOTH the cap reservation AND
+      // the in-flight idempotency lock, and journal the uncertain state
+      // durably. The pre-fix code aborted the lock here, so an identical
+      // resubmission could broadcast a SECOND transaction while the first
+      // might still land. Resolution is an explicit operator action after
+      // onchain reconciliation (resolveUncertain /
+      // POST /api/v1/execution/uncertain/resolve).
+      if (
+        error instanceof ExecutionRejectedError &&
+        error.code === "execution-uncertain" &&
+        reservedFillId !== null &&
+        intentHashValue !== null
+      ) {
+        const entry: UncertainJournalEntry = {
+          intentId: intent.intentId,
+          intentHash: intentHashValue,
+          intent,
+          authorizationId: consumedAuthorizationId ?? "",
+          reservedFillId,
+          decidedAt,
+        };
+        await this.deps.journal?.recordUncertain(entry);
+        this.uncertain.set(intent.intentId, entry);
+        this.deps.logger.warn({ intentId: intent.intentId, chain: intent.chain }, "execution_uncertain_locked");
+        return await this.reject(intent, authorization, "execution-uncertain", error.message, decidedAt);
+      }
       // SECURITY (audit 2026-10-18): release OUR cap reservation (if the
       // pipeline got past limits) so rejected intents do not permanently
       // consume cap space.
@@ -308,6 +342,72 @@ export class GuardedExecutionService implements ExecutionPort {
 
   async receiptsForIntent(intentId: string): Promise<ExecutionReceipt[]> {
     return this.deps.ledger.receiptsForIntent(intentId);
+  }
+
+  /** Uncertain live broadcasts: locked, awaiting operator resolution. */
+  listUncertain(): UncertainJournalEntry[] {
+    return [...this.uncertain.values()];
+  }
+
+  /** Boot restore: uncertain journal entries re-arm the resolution map
+   * (their cap reservations are already restored by the limit-store fills)
+   * AND the idempotency registry's in-flight lock, which is the piece that
+   * rejects identical resubmissions after a restart. */
+  restoreUncertain(entries: UncertainJournalEntry[]): void {
+    for (const entry of entries) {
+      this.uncertain.set(entry.intentId, entry);
+    }
+    this.deps.idempotency.restoreUncertain(entries);
+  }
+
+  /**
+   * Resolve an uncertain live broadcast AFTER onchain reconciliation.
+   *  - landed=true: the tx confirmed; a live-filled receipt is journaled
+   *    and the intent is marked recorded (identical duplicates replay it).
+   *  - landed=false: the tx definitively never confirmed; the in-flight
+   *    lock and the cap reservation are released, allowing resubmission.
+   * Returns the receipt (landed) or null (not landed); throws when the
+   * intent is not in the uncertain set.
+   */
+  async resolveUncertain(
+    intentId: string,
+    outcome: { landed: boolean; txHash?: string; executedOutRaw?: string; feeUsdCents?: number },
+  ): Promise<ExecutionReceipt | null> {
+    const entry = this.uncertain.get(intentId);
+    if (!entry) {
+      throw new Error(`unknown uncertain intent ${intentId}`);
+    }
+    if (outcome.landed) {
+      if (!outcome.txHash) {
+        throw new Error("resolveUncertain(landed=true) requires the onchain txHash");
+      }
+      const receipt: ExecutionReceipt = {
+        schemaVersion: 1,
+        receiptId: randomUUID(),
+        intentId,
+        authorizationId: entry.authorizationId,
+        status: "live-filled",
+        executionMode: "live",
+        txHash: outcome.txHash,
+        simulatedOutRaw: outcome.executedOutRaw ?? "0",
+        feeUsdCents: outcome.feeUsdCents ?? 0,
+        decidedAt: this.deps.clock.now().toISOString(),
+        guardPipelineVersion: GUARD_PIPELINE_VERSION,
+      };
+      this.deps.ledger.record(receipt);
+      this.deps.idempotency.complete(intentId, entry.intentHash, receipt.receiptId);
+      await this.deps.journal?.recordCommit(receipt, { intentId, intentHash: entry.intentHash, receiptId: receipt.receiptId });
+      await this.deps.journal?.resolveUncertain(intentId);
+      this.uncertain.delete(intentId);
+      this.deps.logger.info({ intentId, receiptId: receipt.receiptId, txHash: outcome.txHash }, "execution_uncertain_resolved_landed");
+      return receipt;
+    }
+    this.deps.idempotency.abort(intentId, entry.intentHash);
+    await this.deps.limits.releaseReservation(entry.reservedFillId);
+    await this.deps.journal?.resolveUncertain(intentId);
+    this.uncertain.delete(intentId);
+    this.deps.logger.info({ intentId }, "execution_uncertain_resolved_not_landed");
+    return null;
   }
 
   private async evaluatePolicy(intent: TradeIntent): Promise<void> {

@@ -11,7 +11,6 @@ import {
   MOCK_RECIPIENTS,
   mockPayment,
   mockRequirement,
-  mockSettlement,
 } from "../src/index.js";
 
 const NOW = new Date("2026-04-01T12:00:30.000Z");

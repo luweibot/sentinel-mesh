@@ -359,7 +359,7 @@ export class RpcActivityProvider {
         toBlock: "latest",
         topics: [TRANSFER_TOPIC, null, `0x${wallet.replace(/^0x/i, "").toLowerCase().padStart(64, "0")}`],
       }]);
-      const events = logs.slice(0, query.limit ?? 50).map((log, i) => {
+      const events = logs.slice(0, query.limit ?? 50).map((log) => {
         const from = `0x${log.topics[1]!.slice(-40)}`;
         const to = `0x${log.topics[2]!.slice(-40)}`;
         return {

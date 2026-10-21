@@ -42,7 +42,6 @@ const EIP3009_TYPES = {
 
 /** 4-byte selector of authorizationStates(address,bytes32). */
 const AUTHORIZATION_STATES_SELECTOR = "0x3f264ed9";
-const EMPTY_BYTES32 = "0x" + "0".repeat(64);
 
 export interface Eip3009PaymentPayload {
   from: string;

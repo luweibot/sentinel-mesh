@@ -1,7 +1,7 @@
 import type { AppConfig } from "@sentinel-mesh/config";
 import type { Logger } from "@sentinel-mesh/logger";
 import { SkillRegistry } from "@sentinel-mesh/skills";
-import { LiveFacilitator, MockFacilitator, PaymentRecordStore, SpendCapLedger, X402PaymentGuard, MOCK_ASSETS, createHttpRpcCaller, LIVE_FACILITATOR_ID } from "@sentinel-mesh/payments";
+import { LiveFacilitator, MockFacilitator, PaymentRecordStore, SpendCapLedger, X402PaymentGuard, MOCK_ASSETS, createHttpRpcCaller } from "@sentinel-mesh/payments";
 import type { SpendCapStateJournal } from "@sentinel-mesh/orchestrator";
 import type { AgentCapability } from "@sentinel-mesh/contracts";
 

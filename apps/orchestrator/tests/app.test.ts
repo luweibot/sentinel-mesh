@@ -12,6 +12,7 @@ import {
 } from "@sentinel-mesh/orchestrator";
 import { registerResearchAgents } from "@sentinel-mesh/agents";
 import { buildApp } from "../src/app.js";
+import { buildExecutionStack } from "../src/execution.js";
 
 function deps() {
   const config = loadConfig({ DATA_SOURCE: "fixture" });
@@ -30,6 +31,33 @@ function deps() {
   });
   registerResearchAgents(engine);
   const app = buildApp({ config, logger, engine, storageMode: "in-memory" });
+  return { app, engine };
+}
+
+const OPERATOR_TOKEN = "test-operator-token-0123456789abcdef0123456789";
+
+/** App with the execution control plane (kill-switch etc.) registered. */
+function makeExecutionApp(operatorToken?: string) {
+  const env: Record<string, string> = { DATA_SOURCE: "fixture", EXECUTION_MODE: "paper" };
+  if (operatorToken !== undefined) {
+    env["OPERATOR_API_TOKEN"] = operatorToken;
+  }
+  const config = loadConfig(env);
+  const sink = new PassThrough();
+  sink.resume();
+  const logger = createLogger({ service: "test", level: "silent", destination: sink });
+  const engine = new OrchestrationEngine({
+    bus: new InMemoryEventBus(),
+    taskStore: new InMemoryTaskStore(),
+    runStore: new InMemoryRunStore(),
+    outbox: new InMemoryEventOutbox(),
+    processedEvents: new InMemoryProcessedEvents(),
+    clock: { now: () => new Date() },
+    logger,
+  });
+  registerResearchAgents(engine);
+  const execution = buildExecutionStack(config, logger, { now: () => new Date() }, {});
+  const app = buildApp({ config, logger, engine, execution, storageMode: "in-memory" });
   return { app, engine };
 }
 
@@ -149,5 +177,65 @@ describe("orchestrator service", () => {
     expect((await app.inject({ method: "GET", url: "/api/v1/trace/11111111-1111-4111-8111-111111111111" })).statusCode).toBe(404);
     expect((await app.inject({ method: "GET", url: "/nope" })).statusCode).toBe(404);
     await app.close();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Operator bearer-token gate on state-changing routes (audit 2026-10-21)
+// ---------------------------------------------------------------------------
+describe("operator authentication (OPERATOR_API_TOKEN)", () => {
+  it("rejects a state-changing request without a token with 401", async () => {
+    const { app } = makeExecutionApp(OPERATOR_TOKEN);
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/v1/execution/kill-switch",
+      payload: { scope: "global", state: "engaged" },
+    });
+    expect(res.statusCode).toBe(401);
+    expect(JSON.parse(res.body).error).toBe("UNAUTHORIZED");
+  });
+
+  it("rejects a wrong token with 401", async () => {
+    const { app } = makeExecutionApp(OPERATOR_TOKEN);
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/v1/execution/kill-switch",
+      headers: { authorization: "Bearer wrong-token" },
+      payload: { scope: "global", state: "engaged" },
+    });
+    expect(res.statusCode).toBe(401);
+  });
+
+  it("accepts a state-changing request with the correct token", async () => {
+    const { app } = makeExecutionApp(OPERATOR_TOKEN);
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/v1/execution/kill-switch",
+      headers: { authorization: `Bearer ${OPERATOR_TOKEN}` },
+      payload: { scope: "global", state: "engaged" },
+    });
+    expect(res.statusCode).toBe(200);
+  });
+
+  it("leaves GET routes and the payments client flow unauthenticated", async () => {
+    const { app } = makeExecutionApp(OPERATOR_TOKEN);
+    // read routes are unaffected by the operator gate
+    expect((await app.inject({ method: "GET", url: "/health" })).statusCode).toBe(200);
+    expect((await app.inject({ method: "GET", url: "/api/v1/execution/uncertain" })).statusCode).toBe(200);
+    // the x402 client-facing routes are NOT operator-gated: they carry
+    // their own payment proof gate (402/400 here, but never 401)
+    const verify = await app.inject({ method: "POST", url: "/api/v1/payments/verify", payload: {} });
+    expect(verify.statusCode).not.toBe(401);
+  });
+
+  it("flags state-changing responses with a warning header when the token is NOT configured", async () => {
+    const { app } = makeExecutionApp();
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/v1/execution/kill-switch",
+      payload: { scope: "global", state: "engaged" },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.headers["x-auth-warning"]).toContain("OPERATOR_API_TOKEN");
   });
 });

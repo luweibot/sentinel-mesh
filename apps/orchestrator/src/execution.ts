@@ -249,6 +249,11 @@ export async function restoreGuardState(
   stack.ledger.restore(snapshot.receipts);
   const internal = stack as ExecutionStack & { idempotency: IdempotencyRegistry; limitStore: InMemoryLimitStore };
   internal.idempotency.restore(snapshot.idempotency);
+  // Uncertain live broadcasts (audit 2026-10-21) restore as IN-FLIGHT
+  // locks: a tx that may still land onchain must never be resubmitted
+  // without an explicit operator resolution. restoreUncertain arms both
+  // the executor's resolution map and the idempotency registry lock.
+  stack.executor.restoreUncertain(snapshot.uncertain);
   internal.limitStore.restore(snapshot.fills);
   stack.killSwitch.restore(snapshot.killSwitch);
   // Reconciliation coverage is derived from RECEIPTS, not idempotency

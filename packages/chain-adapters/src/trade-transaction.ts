@@ -2,7 +2,7 @@ import { z } from "zod";
 import { ChainId } from "@sentinel-mesh/contracts";
 import { createHash } from "node:crypto";
 import { sha256Hex } from "./mock-fixtures.js";
-import { withBuilderCodeSuffix, isBuilderCodeAttributed } from "./builder-code.js";
+import { withBuilderCodeSuffix } from "./builder-code.js";
 
 /**
  * Chain-specific transaction VALIDATION for guarded execution.

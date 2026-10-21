@@ -10,6 +10,7 @@ import type {
   RestoredIdempotencyEntry,
   RestoredKillSwitch,
   RestoredSpendCaps,
+  UncertainJournalEntry,
 } from "@sentinel-mesh/execution";
 
 /**
@@ -40,6 +41,12 @@ export class PgGuardStateJournal implements GuardStateJournal {
     );
     const killSwitch = await this.executor.query(
       "select scope, state from guard_kill_switch",
+    );
+    // Uncertain live broadcasts are kept on restore: the tx may still
+    // land onchain, so the in-flight lock must survive restarts
+    // (migration 007, audit 2026-10-21).
+    const uncertain = await this.executor.query(
+      "select intent_id, intent_hash, payload from guard_uncertain order by recorded_at asc",
     );
     const spendCaps = await this.executor.query(
       "select agent_id, day, committed_usd_cents, reserved_usd_cents from guard_spend_caps",
@@ -92,6 +99,18 @@ export class PgGuardStateJournal implements GuardStateJournal {
       fills: restoredFills,
       killSwitch: restoredKillSwitch,
       spendCaps: restoredSpendCaps,
+      uncertain: (uncertain.rows as ReadonlyArray<Record<string, unknown>>).map((row) => {
+        const raw = row["payload"];
+        const payload = typeof raw === "string" ? (JSON.parse(raw) as Record<string, unknown>) : (raw as Record<string, unknown>);
+        return {
+          intentId: String(row["intent_id"]),
+          intentHash: String(row["intent_hash"]),
+          intent: payload["intent"],
+          authorizationId: String(payload["authorizationId"] ?? ""),
+          reservedFillId: String(payload["reservedFillId"] ?? ""),
+          decidedAt: String(payload["decidedAt"] ?? ""),
+        } satisfies UncertainJournalEntry;
+      }),
     };
   }
 
@@ -134,6 +153,19 @@ export class PgGuardStateJournal implements GuardStateJournal {
 
   async recordAbort(intentId: string): Promise<void> {
     await this.executor.query("delete from guard_idempotency where intent_id = $1", [intentId]);
+  }
+
+  async recordUncertain(entry: UncertainJournalEntry): Promise<void> {
+    await this.executor.query(
+      `insert into guard_uncertain (intent_id, intent_hash, payload)
+       values ($1, $2, $3)
+       on conflict (intent_id) do nothing`,
+      [entry.intentId, entry.intentHash, JSON.stringify(entry)],
+    );
+  }
+
+  async resolveUncertain(intentId: string): Promise<void> {
+    await this.executor.query("delete from guard_uncertain where intent_id = $1", [intentId]);
   }
 
   async recordFill(fill: RestoredFill): Promise<void> {

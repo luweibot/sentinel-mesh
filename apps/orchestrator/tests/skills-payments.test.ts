@@ -233,7 +233,15 @@ describe("x402 route gating (service catalog)", () => {
   const config = loadConfig({ DATA_SOURCE: "fixture" });
   const logger = createLogger({ service: "test", level: "fatal" });
   const bus = new InMemoryEventBus();
-  const engine = new OrchestrationEngine({ bus, logger, clock: { now: () => NOW } });
+  const engine = new OrchestrationEngine({
+    bus,
+    taskStore: new InMemoryTaskStore(),
+    runStore: new InMemoryRunStore(),
+    outbox: new InMemoryEventOutbox(),
+    processedEvents: new InMemoryProcessedEvents(),
+    logger,
+    clock: { now: () => NOW },
+  });
   registerResearchAgents(engine);
   const payments = buildPaymentsStack(config, logger, { now: () => NOW });
   const policyEngine = new DeterministicPolicyEngine({

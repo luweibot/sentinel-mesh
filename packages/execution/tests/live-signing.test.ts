@@ -4,7 +4,7 @@ import { LiveEvmSigner } from "../src/live-signing.js";
 import { DeterministicMockSigner } from "../src/signing.js";
 
 /** Throwaway throwaway key generated for this test ONLY — never funded, never used anywhere else. */
-const TEST_KEY = "0x59c3f7a2f6a6b1b47e5b3bc664f687d434e2d405df52e5b8a418bb5e68e2f1e3" as const;
+const TEST_KEY: `0x${string}` = "0x59c3f7a2f6a6b1b47e5b3bc664f687d434e2d405df52e5b8a418bb5e68e2f1e3";
 
 describe("LiveEvmSigner", () => {
   it("signs the canonical payload with a verifiable ECDSA signature", async () => {
@@ -16,7 +16,7 @@ describe("LiveEvmSigner", () => {
     expect(result.signerId).toContain("live-evm-");
     // signature recovers to the signer's public address — proves real ECDSA
     const recovered = await verifyMessage({
-      address: signer.address,
+      address: signer.address as `0x${string}`,
       message: "canonical execution payload v1",
       signature: result.signature as `0x${string}`,
     });

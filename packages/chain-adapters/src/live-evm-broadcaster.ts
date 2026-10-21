@@ -120,7 +120,7 @@ export class LiveAeroBroadcaster {
   }
 
   private deadlineArg(): bigint {
-    const deadlineSec = Math.floor(this.now() / 1000) + 15 * 60; // fixed 15min
+    const deadlineSec = Math.floor(this.now() / 1000) + MAX_DEADLINE_SEC; // 30min hard cap
     return BigInt(deadlineSec);
   }
 
