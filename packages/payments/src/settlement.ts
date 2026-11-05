@@ -1,5 +1,5 @@
 import type { RpcCaller } from "./live-facilitator.js";
-import { nonceToBytes32Hex } from "./live-facilitator.js";
+import { AUTHORIZATION_STATE_SELECTOR, nonceToBytes32Hex } from "./live-facilitator.js";
 
 /**
  * Inline x402 SETTLEMENT for canonical clients.
@@ -170,7 +170,7 @@ export class SettlementBroadcaster {
     // Already consumed on-chain? Never pay twice.
     try {
       const state = await this.deps.rpc.call<string>("eth_call", [
-        { to: cfg.usdcAddress, data: "0x3f264ed9" + pad32(auth.from.toLowerCase().replace(/^0x/, "")) + nonceToBytes32Hex(auth.nonce).slice(2) },
+        { to: cfg.usdcAddress, data: AUTHORIZATION_STATE_SELECTOR + pad32(auth.from.toLowerCase().replace(/^0x/, "")) + nonceToBytes32Hex(auth.nonce).slice(2) },
         "latest",
       ]);
       if (BigInt(state ?? "0x0") !== 0n) {
@@ -268,6 +268,96 @@ export async function createEip1559Signer(options: {
         type: "eip1559",
       });
       return options.rpc.call<string>("eth_sendRawTransaction", [raw]);
+    },
+  };
+}
+
+/**
+ * Privy-backed signer for hosts where the settlement wallet lives in a
+ * Privy agent wallet instead of a local key (no raw private key on disk).
+ *
+ * It shells out to the Privy agent-wallet CLI and asks it to send exactly
+ * one pre-built EIP-1559 call on Base. Same contract as the key signer:
+ * one call, no other capability. Fails closed when the CLI reports an
+ * error or returns no transaction hash.
+ */
+const PRIVY_PACKAGE_ARGS = [
+  "--package=@privy-io/agent-wallet-cli",
+  "dlx",
+  "privy-agent-wallet",
+  "rpc",
+  "--json",
+];
+
+export type PrivyExec = (args: string[]) => Promise<{ stdout: string }>;
+
+function toHexQuantity(n: bigint | number): string {
+  return `0x${BigInt(n).toString(16)}`;
+}
+
+/** Pulls the first 32-byte hex hash out of arbitrary CLI JSON output. */
+export function findTxHash(output: string): string | null {
+  const start = output.indexOf("{");
+  if (start >= 0) {
+    try {
+      const parsed: unknown = JSON.parse(output.slice(start));
+      const seen = new Set<unknown>();
+      const walk = (v: unknown, depth: number): string | null => {
+        if (depth > 6 || v === null || typeof v !== "object" || seen.has(v)) return null;
+        seen.add(v);
+        for (const [k, val] of Object.entries(v as Record<string, unknown>)) {
+          if (typeof val === "string" && /^(0x)?[0-9a-fA-F]{64}$/.test(val) && /hash|tx/i.test(k)) {
+            return val.startsWith("0x") ? val : `0x${val}`;
+          }
+          const nested = walk(val, depth + 1);
+          if (nested) return nested;
+        }
+        return null;
+      };
+      const found = walk(parsed, 0);
+      if (found) return found;
+    } catch {
+      /* fall through to the regex below */
+    }
+  }
+  const match = output.match(/0x[0-9a-fA-F]{64}/);
+  return match ? match[0] : null;
+}
+
+export async function createPrivyCliSigner(options: {
+  /** Address the CLI wallet reports; checked against what it actually sends. */
+  address: string;
+  exec: PrivyExec;
+  chainId?: number;
+}): Promise<SettlementSigner> {
+  const chainId = options.chainId ?? SETTLEMENT_CHAIN_ID;
+  if (!/^0x[0-9a-fA-F]{40}$/.test(options.address)) {
+    throw new Error(`createPrivyCliSigner: not an EVM address: ${options.address}`);
+  }
+  const address = options.address;
+  return {
+    address,
+    async sendTransaction(tx) {
+      const body = JSON.stringify({
+        method: "eth_sendTransaction",
+        caip2: `eip155:${chainId}`,
+        params: {
+          transaction: {
+            to: tx.to,
+            data: tx.data,
+            gas_limit: toHexQuantity(tx.gas),
+            max_fee_per_gas: toHexQuantity(tx.maxFeePerGas),
+            max_priority_fee_per_gas: toHexQuantity(tx.maxPriorityFeePerGas),
+            nonce: toHexQuantity(tx.nonce),
+          },
+        },
+      });
+      const { stdout } = await options.exec([...PRIVY_PACKAGE_ARGS, body]);
+      const hash = findTxHash(stdout);
+      if (!hash) {
+        throw new Error(`privy signer: no transaction hash in CLI output: ${stdout.slice(0, 300)}`);
+      }
+      return hash;
     },
   };
 }

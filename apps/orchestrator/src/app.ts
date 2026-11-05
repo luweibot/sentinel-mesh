@@ -24,6 +24,7 @@ import {
   requirementForService,
   SettlementBroadcaster,
   createEip1559Signer,
+  createPrivyCliSigner,
   createHttpRpcCaller,
 } from "@sentinel-mesh/payments";
 import { SUPPORTED_X402_VERSION, X402_VERSION_HEADER } from "@sentinel-mesh/contracts";
@@ -624,11 +625,24 @@ export function buildApp(deps: AppDeps): FastifyInstance {
     let settlementOnce: Promise<SettlementBroadcaster | null> | null = null;
     const getSettlement = async (): Promise<SettlementBroadcaster | null> => {
       if (deps.settlement) return deps.settlement as SettlementBroadcaster;
-      if (!deps.config.settlementEnabled || !deps.config.settlementPrivateKey) return null;
+      if (!deps.config.settlementEnabled) return null;
+      const usesPrivy = deps.config.settlementSigner === "privy";
+      if (usesPrivy ? !deps.config.settlementPrivyAddress : !deps.config.settlementPrivateKey) return null;
       if (!settlementOnce) {
         settlementOnce = (async () => {
           const rpc = createHttpRpcCaller(deps.config.baseRpcUrl);
-          const signer = await createEip1559Signer({ privateKey: deps.config.settlementPrivateKey!, rpc });
+          const signer = usesPrivy
+            ? await createPrivyCliSigner({
+                address: deps.config.settlementPrivyAddress!,
+                exec: async (args) => {
+                  const { execFile } = await import("node:child_process");
+                  const { promisify } = await import("node:util");
+                  const run = promisify(execFile);
+                  const { stdout } = await run("pnpm", args, { timeout: 120_000, maxBuffer: 4 << 20 });
+                  return { stdout: String(stdout) };
+                },
+              })
+            : await createEip1559Signer({ privateKey: deps.config.settlementPrivateKey!, rpc });
           return new SettlementBroadcaster({
             rpc,
             signer,

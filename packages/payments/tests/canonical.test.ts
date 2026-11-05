@@ -160,11 +160,11 @@ describe("canonicalAccepts", () => {
       maxTimeoutSeconds: 300,
       mimeType: "application/json",
     });
-    expect(accept.scheme).toBe("exact");
-    expect(accept.network).toBe("eip155:8453");
+    expect(accept!.scheme).toBe("exact");
+    expect(accept!.network).toBe("eip155:8453");
     // The rest of the requirement is passed through untouched.
-    expect(accept.maxAmountRequired).toBe("10000");
-    expect(accept.payTo).toBe(RECEIVER);
+    expect(accept!.maxAmountRequired).toBe("10000");
+    expect(accept!.payTo).toBe(RECEIVER);
   });
 });
 

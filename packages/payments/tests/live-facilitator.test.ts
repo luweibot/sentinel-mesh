@@ -149,7 +149,7 @@ describe("LiveFacilitator.confirmSettlement", () => {
     expect(evidence.facilitatorId).toBe("base-usdc-facilitator-v1");
     // The eth_call must target USDC's authorizationStates with the payer + nonce.
     const call = seen.find((c) => c.method === "eth_call");
-    expect(call?.params[0]).toMatchObject({ to: "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913", data: /^0x3f264ed9/ });
+    expect(call?.params[0]).toMatchObject({ to: "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913", data: /^0xe94a0102/ });
   });
 
   it("rejects when the transaction is unmined or reverted", async () => {

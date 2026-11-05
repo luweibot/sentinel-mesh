@@ -41,7 +41,13 @@ const EIP3009_TYPES = {
 } as const;
 
 /** 4-byte selector of authorizationStates(address,bytes32). */
-const AUTHORIZATION_STATES_SELECTOR = "0x3f264ed9";
+/**
+ * keccak256("authorizationState(address,bytes32)")[0..4] on FiatTokenV2.
+ * Was 0x3f264ed9, which matches no function on the contract: every state
+ * read reverted, so settlement refused every real payment. Verified
+ * against keccak and a live eth_call on Base.
+ */
+export const AUTHORIZATION_STATE_SELECTOR = "0xe94a0102";
 
 export interface Eip3009PaymentPayload {
   from: string;
@@ -72,7 +78,7 @@ export function nonceToBytes32Hex(nonce: string): string {
 }
 
 function encodeAuthorizationStatesCall(payer: string, nonceBytes32: string): string {
-  return AUTHORIZATION_STATES_SELECTOR + to32HexAddress(payer).slice(2) + nonceBytes32.slice(2);
+  return AUTHORIZATION_STATE_SELECTOR + to32HexAddress(payer).slice(2) + nonceBytes32.slice(2);
 }
 
 /** JSON-RPC over HTTPS (Base public RPC). */

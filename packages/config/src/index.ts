@@ -64,6 +64,13 @@ export const AppConfig = z
       .transform((v) => v === "true"),
     /** Dedicated key for settlement broadcasts. Never a trading key. */
     settlementPrivateKey: z.string().optional(),
+    /**
+     * How settlement signs: "key" uses SETTLEMENT_PRIVATE_KEY locally,
+     * "privy" shells out to a Privy agent wallet (no key on the host).
+     */
+    settlementSigner: z.enum(["key", "privy"]).default("key"),
+    /** Wallet address the Privy CLI controls, required when settlementSigner=privy. */
+    settlementPrivyAddress: z.string().optional(),
     /** Hard ceiling on maxFeePerGas for a settlement, in gwei. */
     settlementMaxFeeGwei: z.coerce.number().min(0).default(0.5),
     /** Rolling one-hour ceiling on settlement gas spend, in gwei of budget. */
@@ -185,6 +192,8 @@ function pick(env: NodeJS.ProcessEnv) {
     paymentsReceiverAddress: env.PAYMENTS_RECEIVER_ADDRESS,
     settlementEnabled: env.SETTLEMENT_ENABLED,
     settlementPrivateKey: env.SETTLEMENT_PRIVATE_KEY,
+    settlementSigner: env.SETTLEMENT_SIGNER,
+    settlementPrivyAddress: env.SETTLEMENT_PRIVY_ADDRESS,
     settlementMaxFeeGwei: env.SETTLEMENT_MAX_FEE_GWEI,
     settlementHourlyGasCapGwei: env.SETTLEMENT_HOURLY_GAS_CAP_GWEI,
     paymentsMode: env.PAYMENTS_MODE,
