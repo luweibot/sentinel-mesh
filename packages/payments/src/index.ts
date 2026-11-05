@@ -5,6 +5,7 @@ export * from "./facilitator.js";
 export * from "./live-facilitator.js";
 export * from "./fixtures.js";
 export * from "./canonical.js";
+export * from "./settlement.js";
 
 export {
   SERVICE_CATALOG,

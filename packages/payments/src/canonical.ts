@@ -30,6 +30,20 @@ export interface CanonicalX402Payment {
   agentId: string;
   /** Deterministic id, so a retried header cannot double-count. */
   paymentId: string;
+  /**
+   * The authorization in the shape the settlement broadcaster needs
+   * (ISO validity window, 65-byte signature). Present so the server can
+   * submit transferWithAuthorization for a canonical buyer.
+   */
+  authorization: {
+    from: string;
+    to: string;
+    value: string;
+    validAfter: string;
+    validBefore: string;
+    nonce: string;
+    signature: string;
+  };
   /** Internal payload shape (X402PaymentPayload) the guard validates. */
   payment: {
     x402Version: string;
@@ -178,6 +192,15 @@ export function parseCanonicalX402Payment(header: string): CanonicalParseResult 
     value: {
       agentId: from!,
       paymentId,
+      authorization: {
+        from: from!,
+        to: to!,
+        value: value!,
+        validAfter: validAfter!,
+        validBefore: validBefore!,
+        nonce: nonce!,
+        signature: signature!,
+      },
       payment: {
         x402Version: SUPPORTED_X402_VERSION,
         scheme: "exactInEvm",

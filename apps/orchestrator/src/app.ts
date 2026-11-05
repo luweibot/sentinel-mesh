@@ -22,6 +22,9 @@ import {
   findServiceByRoute,
   parseCanonicalX402Payment,
   requirementForService,
+  SettlementBroadcaster,
+  createEip1559Signer,
+  createHttpRpcCaller,
 } from "@sentinel-mesh/payments";
 import { SUPPORTED_X402_VERSION, X402_VERSION_HEADER } from "@sentinel-mesh/contracts";
 import type { EventPublisher } from "@sentinel-mesh/queue";
@@ -58,6 +61,12 @@ export interface AppDeps {
   skills?: SkillRegistry;
   /** x402 payment guard; when absent, payment endpoints 503. */
   payments?: PaymentsStack;
+  /**
+   * Settlement broadcaster override. Present so tests (and a future
+   * out-of-process settler) can supply one without env-derived keys; in
+   * production it is built lazily from SETTLEMENT_* config.
+   */
+  settlement?: unknown;
   /**
    * Shared API routes (agent registry, signal pipeline, explorer). When
    * present, this single service also serves the retired API service's
@@ -609,6 +618,33 @@ export function buildApp(deps: AppDeps): FastifyInstance {
     // handler responds. Unpaid requests receive 402 + the requirement.
     // -----------------------------------------------------------------
     const receiver = deps.config.paymentsReceiverAddress;
+    // Inline settlement is opt-in (SETTLEMENT_ENABLED) and needs its own
+    // key. Built lazily so a deployment without it pays no cost and the
+    // kill switch stays the default.
+    let settlementOnce: Promise<SettlementBroadcaster | null> | null = null;
+    const getSettlement = async (): Promise<SettlementBroadcaster | null> => {
+      if (deps.settlement) return deps.settlement as SettlementBroadcaster;
+      if (!deps.config.settlementEnabled || !deps.config.settlementPrivateKey) return null;
+      if (!settlementOnce) {
+        settlementOnce = (async () => {
+          const rpc = createHttpRpcCaller(deps.config.baseRpcUrl);
+          const signer = await createEip1559Signer({ privateKey: deps.config.settlementPrivateKey!, rpc });
+          return new SettlementBroadcaster({
+            rpc,
+            signer,
+            config: {
+              enabled: true,
+              receiverAddress: deps.config.paymentsReceiverAddress,
+              usdcAddress: deps.config.baseUsdcAddress,
+              maxFeePerGasWei: BigInt(Math.round(deps.config.settlementMaxFeeGwei * 1e9)),
+              hourlyGasCapWei: BigInt(Math.round(deps.config.settlementHourlyGasCapGwei * 1e9)),
+            },
+          });
+        })();
+      }
+      return settlementOnce;
+    };
+
     app.addHook("preHandler", async (request, reply) => {
       const route = `${request.method} ${request.routeOptions?.url ?? ""}`;
       if (FREE_ROUTES.includes(route)) {
@@ -641,7 +677,28 @@ export function buildApp(deps: AppDeps): FastifyInstance {
             paymentId: parsed.value.paymentId,
           });
           if (verdict.ok && verdict.record) {
-            const record = verdict.record;
+            let record = verdict.record;
+            let settleNote: string | undefined;
+            if (deps.config.paymentsMode === "live" && record.status === "recorded") {
+              const broadcaster = await getSettlement();
+              if (broadcaster) {
+                const outcome = await broadcaster.settle(parsed.value.authorization);
+                if (outcome.ok) {
+                  const confirmed = await payments.guard.verifySettlement(record.paymentId, {
+                    transactionHash: outcome.txHash,
+                  });
+                  if (confirmed.ok && confirmed.record) {
+                    record = confirmed.record;
+                  } else {
+                    settleNote = `settlement broadcast ${outcome.txHash} could not be confirmed: ${confirmed.message}`;
+                  }
+                } else {
+                  settleNote = `settlement declined: ${outcome.message}`;
+                }
+              } else {
+                settleNote = "settlement is disabled on this deployment";
+              }
+            }
             // LIVE mode still requires on-chain settlement; PAPER mode
             // accepts the recorded authorization (same rule as our flow).
             const settledOk =
@@ -656,7 +713,12 @@ export function buildApp(deps: AppDeps): FastifyInstance {
             if (grantsOk) {
               reply.header(
                 "X-PAYMENT-RESPONSE",
-                encodePaymentResponse({ success: true, paymentId: record.paymentId, status: record.status }),
+                encodePaymentResponse({
+                  success: true,
+                  paymentId: record.paymentId,
+                  status: record.status,
+                  ...(record.transactionHash ? { transactionHash: record.transactionHash } : {}),
+                }),
               );
               return;
             }
@@ -668,7 +730,7 @@ export function buildApp(deps: AppDeps): FastifyInstance {
                 status: record.status,
                 reason:
                   deps.config.paymentsMode === "live"
-                    ? "authorization accepted but not yet settled on-chain; submit the transferWithAuthorization, then POST /api/v1/payments/settle with its transactionHash"
+                    ? `authorization accepted but not yet settled on-chain${settleNote ? ` (${settleNote})` : ""}; submit the transferWithAuthorization, then POST /api/v1/payments/settle with its transactionHash`
                     : "authorization recorded but does not grant this service",
               }),
             );

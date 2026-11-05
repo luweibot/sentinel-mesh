@@ -51,6 +51,23 @@ export const AppConfig = z
     paymentsReceiverAddress: z.string().regex(EvmAddressPattern).default(
       "0x250cf8852e5236dcaf5ee7f06d1e0f5800413866",
     ),
+    /**
+     * Inline x402 settlement. OFF by default: with this off the server
+     * never broadcasts a transfer and canonical buyers stay at 402 until
+     * some other party settles. Turning it on lets the server submit
+     * transferWithAuthorization itself, spending gas from the settlement
+     * wallet, bounded by the fee ceiling and the hourly cap below.
+     */
+    settlementEnabled: z
+      .enum(["true", "false"])
+      .default("false")
+      .transform((v) => v === "true"),
+    /** Dedicated key for settlement broadcasts. Never a trading key. */
+    settlementPrivateKey: z.string().optional(),
+    /** Hard ceiling on maxFeePerGas for a settlement, in gwei. */
+    settlementMaxFeeGwei: z.coerce.number().min(0).default(0.5),
+    /** Rolling one-hour ceiling on settlement gas spend, in gwei of budget. */
+    settlementHourlyGasCapGwei: z.coerce.number().min(0).default(500000),
     /** Market data source: live (free public APIs, fixture fallback labeled per call) or fixture (deterministic placeholders). Default live since 2026-10-19. */
     dataSource: z.enum(["fixture", "live"]).default("live"),
     /**
@@ -166,6 +183,10 @@ function pick(env: NodeJS.ProcessEnv) {
     databaseUrl: env.DATABASE_URL === "" ? undefined : env.DATABASE_URL,
     redisUrl: env.REDIS_URL === "" ? undefined : env.REDIS_URL,
     paymentsReceiverAddress: env.PAYMENTS_RECEIVER_ADDRESS,
+    settlementEnabled: env.SETTLEMENT_ENABLED,
+    settlementPrivateKey: env.SETTLEMENT_PRIVATE_KEY,
+    settlementMaxFeeGwei: env.SETTLEMENT_MAX_FEE_GWEI,
+    settlementHourlyGasCapGwei: env.SETTLEMENT_HOURLY_GAS_CAP_GWEI,
     paymentsMode: env.PAYMENTS_MODE,
     operatorApiToken: env.OPERATOR_API_TOKEN === undefined || env.OPERATOR_API_TOKEN === "" ? undefined : env.OPERATOR_API_TOKEN,
     baseRpcUrl: env.BASE_RPC_URL,

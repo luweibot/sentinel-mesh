@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { privateKeyToAccount, generatePrivateKey } from "viem/accounts";
 import { PassThrough } from "node:stream";
 import { loadConfig } from "@sentinel-mesh/config";
 import { createLogger } from "@sentinel-mesh/logger";
@@ -18,6 +19,41 @@ import { buildPaymentsStack, buildSkillsStack } from "../src/skills-payments.js"
 const NOW = new Date("2026-04-01T12:00:30.000Z");
 const PAYER = "0x1111111111111111111111111111111111111111";
 const NONCE = "0x" + "ab".repeat(32);
+
+
+/** Same stack as makeApp, but with an explicit config and optional settlement. */
+async function makeAppWith(config: ReturnType<typeof loadConfig>, settlement?: unknown) {
+  const sink = new PassThrough();
+  sink.resume();
+  const logger = createLogger({ service: "test", level: "silent", destination: sink });
+  const engine = new OrchestrationEngine({
+    bus: new InMemoryEventBus(),
+    taskStore: new InMemoryTaskStore(),
+    runStore: new InMemoryRunStore(),
+    outbox: new InMemoryEventOutbox(),
+    processedEvents: new InMemoryProcessedEvents(),
+    clock: { now: () => NOW },
+    logger,
+  });
+  registerResearchAgents(engine);
+  const skills = buildSkillsStack(config, logger, { now: () => NOW }).registry;
+  const payments = buildPaymentsStack(config, logger, { now: () => NOW });
+  const publisher = await createEventPublisher({});
+  const policyEngine = new DeterministicPolicyEngine({
+    policyVersion: "0.1.0",
+    rules: { allowedChains: ["base", "solana"], maxNotionalUsdCents: 50000 },
+  });
+  return buildApp({
+    config,
+    logger,
+    engine,
+    skills,
+    payments,
+    api: { publisher, policyEngine, busMode: "in-memory" },
+    storageMode: "in-memory",
+    settlement,
+  });
+}
 
 async function makeApp() {
   const config = loadConfig({ DATA_SOURCE: "fixture" });
@@ -200,5 +236,107 @@ describe("canonical x402 client support", () => {
       headers: { "x-payments": "8f2a6f7c-0e39-4d6a-9b3a-1f7a9f2a4c11" },
     });
     expect(paid.statusCode).toBe(200);
+  });
+});
+
+
+describe("inline settlement wiring", () => {
+  /**
+   * A real EIP-3009 signature: in LIVE mode the guard verifies it
+   * cryptographically, so the settlement path is only reachable with a
+   * genuine one. No funds are involved and nothing is broadcast.
+   */
+  async function canonicalHeaderFor(valueAtomic = 10000) {
+    const account = privateKeyToAccount(generatePrivateKey());
+    const authorization = {
+      from: account.address,
+      to: "0x250cf8852e5236dcaf5ee7f06d1e0f5800413866" as const,
+      value: BigInt(valueAtomic),
+      // the app clock is pinned to NOW, so the window must straddle NOW
+      validAfter: BigInt(Math.floor(NOW.getTime() / 1000) - 60),
+      validBefore: BigInt(Math.floor(NOW.getTime() / 1000) + 300),
+      nonce: ("0x" + "cd".repeat(32)) as `0x${string}`,
+    };
+    const signature = await account.signTypedData({
+      domain: {
+        name: "USD Coin",
+        version: "2",
+        chainId: 8453,
+        verifyingContract: "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
+      },
+      types: {
+        TransferWithAuthorization: [
+          { name: "from", type: "address" },
+          { name: "to", type: "address" },
+          { name: "value", type: "uint256" },
+          { name: "validAfter", type: "uint256" },
+          { name: "validBefore", type: "uint256" },
+          { name: "nonce", type: "bytes32" },
+        ],
+      },
+      primaryType: "TransferWithAuthorization",
+      message: authorization,
+    });
+    const envelope = {
+      x402Version: 1,
+      scheme: "exact",
+      network: "eip155:8453",
+      payload: {
+        signature,
+        authorization: {
+          from: authorization.from,
+          to: authorization.to,
+          value: authorization.value.toString(),
+          validAfter: authorization.validAfter.toString(),
+          validBefore: authorization.validBefore.toString(),
+          nonce: authorization.nonce,
+        },
+      },
+    };
+    return Buffer.from(JSON.stringify(envelope), "utf8").toString("base64");
+  }
+
+  it("LIVE + settlement switched off: still 402, and says so", async () => {
+    const live = loadConfig({
+      PAYMENTS_MODE: "live",
+      BASE_RPC_URL: "https://mainnet.base.org",
+      DATA_SOURCE: "fixture",
+      SETTLEMENT_ENABLED: "false",
+    });
+    const app = await makeAppWith(live);
+    const res = await app.inject({
+      method: "GET",
+      url: "/api/v1/tokens",
+      headers: { "x-payment": await canonicalHeaderFor() },
+    });
+    expect(res.statusCode).toBe(402);
+    const body = res.json() as { accepts: unknown[] };
+    expect(body.accepts).toHaveLength(1);
+  });
+
+  it("LIVE + a broadcaster that declines: 402 carries the reason, never content", async () => {
+    const live = loadConfig({
+      PAYMENTS_MODE: "live",
+      BASE_RPC_URL: "https://mainnet.base.org",
+      DATA_SOURCE: "fixture",
+      SETTLEMENT_ENABLED: "true",
+    });
+    const declining = {
+      async settle() {
+        return { ok: false as const, code: "fee-too-high", message: "network fee 9 wei exceeds ceiling 1 wei" };
+      },
+    };
+    const app = await makeAppWith(live, declining);
+    const res = await app.inject({
+      method: "GET",
+      url: "/api/v1/tokens",
+      headers: { "x-payment": await canonicalHeaderFor() },
+    });
+    expect(res.statusCode).toBe(402);
+    const receipt = JSON.parse(
+      Buffer.from(String(res.headers["x-payment-response"]), "base64").toString("utf8"),
+    ) as { success: boolean; reason: string };
+    expect(receipt.success).toBe(false);
+    expect(receipt.reason).toMatch(/fee-too-high|exceeds ceiling/);
   });
 });
