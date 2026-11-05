@@ -14,7 +14,15 @@ import type { TreasuryStack } from "./treasury.js";
 import { SkillIntakeRejectedError, SkillRegistryError, type SkillRegistry } from "@sentinel-mesh/skills";
 import { registerApiRoutes } from "@sentinel-mesh/api";
 import { buildProviders } from "@sentinel-mesh/chain-data";
-import { FREE_ROUTES, SERVICE_CATALOG, findServiceByRoute, requirementForService } from "@sentinel-mesh/payments";
+import {
+  FREE_ROUTES,
+  SERVICE_CATALOG,
+  canonicalAccepts,
+  encodePaymentResponse,
+  findServiceByRoute,
+  parseCanonicalX402Payment,
+  requirementForService,
+} from "@sentinel-mesh/payments";
 import { SUPPORTED_X402_VERSION, X402_VERSION_HEADER } from "@sentinel-mesh/contracts";
 import type { EventPublisher } from "@sentinel-mesh/queue";
 import type { PolicyEngine } from "@sentinel-mesh/policy-engine";
@@ -611,6 +619,65 @@ export function buildApp(deps: AppDeps): FastifyInstance {
         return; // unpriced routes (execution, task retrieval) stay open;
                 // payments grant content access only, never trading.
       }
+      // ---------------------------------------------------------------
+      // Canonical x402 clients (the X-PAYMENT header, singular) replay the
+      // request with a base64 EIP-3009 authorization inline and never call
+      // a verify endpoint. Translate that into the internal payload so the
+      // same guard checks apply. Our own X-PAYMENTS + paymentId flow below
+      // still works unchanged.
+      // ---------------------------------------------------------------
+      const canonicalHeader = request.headers["x-payment"];
+      let canonicalRejection: string | undefined;
+      if (typeof canonicalHeader === "string" && canonicalHeader.trim().length > 0) {
+        const parsed = parseCanonicalX402Payment(canonicalHeader);
+        if (!parsed.ok) {
+          canonicalRejection = parsed.reason;
+        } else {
+          const requirement = requirementForService(service, receiver, deps.config.baseUsdcAddress);
+          const verdict = await payments.guard.process({
+            agentId: parsed.value.agentId,
+            requirement,
+            payment: parsed.value.payment,
+            paymentId: parsed.value.paymentId,
+          });
+          if (verdict.ok && verdict.record) {
+            const record = verdict.record;
+            // LIVE mode still requires on-chain settlement; PAPER mode
+            // accepts the recorded authorization (same rule as our flow).
+            const settledOk =
+              deps.config.paymentsMode === "live"
+                ? record.status === "settled"
+                : record.status === "settled" || record.status === "recorded";
+            const grantsOk =
+              settledOk &&
+              record.grants.contentAccess === true &&
+              record.amount === service.amountAtomic &&
+              record.payTo.toLowerCase() === receiver.toLowerCase();
+            if (grantsOk) {
+              reply.header(
+                "X-PAYMENT-RESPONSE",
+                encodePaymentResponse({ success: true, paymentId: record.paymentId, status: record.status }),
+              );
+              return;
+            }
+            reply.header(
+              "X-PAYMENT-RESPONSE",
+              encodePaymentResponse({
+                success: false,
+                paymentId: record.paymentId,
+                status: record.status,
+                reason:
+                  deps.config.paymentsMode === "live"
+                    ? "authorization accepted but not yet settled on-chain; submit the transferWithAuthorization, then POST /api/v1/payments/settle with its transactionHash"
+                    : "authorization recorded but does not grant this service",
+              }),
+            );
+          } else if (!verdict.ok) {
+            canonicalRejection = verdict.message;
+          }
+        }
+      }
+
       const paymentId = (request.headers["x-payments"] ?? "") as string;
       if (paymentId) {
         const record = payments.guard.list().find((r) => r.paymentId === paymentId);
@@ -632,13 +699,19 @@ export function buildApp(deps: AppDeps): FastifyInstance {
         }
       }
       // No valid payment: answer 402 with the requirement the payer needs.
+      const requirement = requirementForService(service, receiver, deps.config.baseUsdcAddress);
       reply.header(X402_VERSION_HEADER, SUPPORTED_X402_VERSION);
       reply.code(402).send({
+        // Canonical x402 clients read x402Version + accepts[] and send the
+        // payment back in the X-PAYMENT header.
+        x402Version: Number(SUPPORTED_X402_VERSION),
+        accepts: canonicalAccepts(requirement),
         error: "PAYMENT_REQUIRED",
         serviceId: service.serviceId,
         priceUsd: service.priceUsd,
-        requirement: requirementForService(service, receiver, deps.config.baseUsdcAddress),
-        hint: "POST /api/v1/payments/verify with an x402 payment for the requirement, then retry with the paymentId in the X-PAYMENTS header",
+        requirement,
+        rejection: canonicalRejection,
+        hint: "Standard clients: sign an EIP-3009 transferWithAuthorization for accepts[0] and retry this request with it base64-encoded in the X-PAYMENT header. Our own clients may instead POST /api/v1/payments/verify and retry with the paymentId in X-PAYMENTS.",
       });
     });
 

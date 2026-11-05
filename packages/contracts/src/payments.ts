@@ -6,9 +6,10 @@ import { EvmAddress, IsoDateTime, Uuid } from "./primitives.js";
  *
  * PROTOCOL ASSUMPTIONS (documented in docs/X402.md):
  *  - x402 v1 only: responses must carry `X-PAYMENTS-Version: 1`.
- *  - Only the documented `exactInEvm` scheme is supported (EIP-3009
- *    transferWithAuthorization on EVM chains). Solana variants are NOT
- *    implemented and are rejected.
+ *  - Two schemes are supported, both EIP-3009 transferWithAuthorization
+ *    on EVM chains: `exactInEvm` (ours) and `exact` (the canonical x402
+ *    name standard clients send, verified 2026-11-05). Solana variants
+ *    are NOT implemented and are rejected.
  *  - Settlement evidence is only accepted from explicitly allowlisted
  *    facilitator adapters. No live facilitator ships in this phase; tests
  *    use deterministic mock fixtures. No API keys exist in the codebase.
@@ -16,7 +17,7 @@ import { EvmAddress, IsoDateTime, Uuid } from "./primitives.js";
 
 export const X402_VERSION_HEADER = "X-PAYMENTS-Version";
 export const SUPPORTED_X402_VERSION = "1";
-export const SUPPORTED_X402_SCHEMES = ["exactInEvm"] as const;
+export const SUPPORTED_X402_SCHEMES = ["exactInEvm", "exact"] as const;
 
 /** EVM chain ids recognized by x402 and mapped to registry chains. */
 export const X402_CHAIN_IDS: Record<number, string> = {
