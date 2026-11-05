@@ -40,12 +40,16 @@ export const AppConfig = z
     /** Optional in dev. Unset means the in-memory event bus. */
     redisUrl: z.string().url().optional(),
     /**
-     * x402 receiver: OUR project EVM wallet (the EVM_PRIVATE_KEY holder).
+     * x402 receiver: a dedicated wallet this project controls, rotated
+     * 2026-11-05 OFF the old project wallet 0x0bee…47a8 because that key
+     * had been exposed and the account was EIP-7702 delegated to a
+     * third-party authority. The old wallet is watch-only now.
      * Never point this at a third-party watched-trader wallet: payments
-     * must only ever route to the wallet this project controls.
+     * must only ever route to a wallet this project controls, and the
+     * receiver key should live only in the settlement service.
      */
     paymentsReceiverAddress: z.string().regex(EvmAddressPattern).default(
-      "0x0bee61d45d42d7342d57ea7581d17581203447a8",
+      "0x250cf8852e5236dcaf5ee7f06d1e0f5800413866",
     ),
     /** Market data source: live (free public APIs, fixture fallback labeled per call) or fixture (deterministic placeholders). Default live since 2026-10-19. */
     dataSource: z.enum(["fixture", "live"]).default("live"),

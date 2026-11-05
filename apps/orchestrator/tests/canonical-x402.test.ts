@@ -63,7 +63,7 @@ function canonicalHeader(overrides: Record<string, unknown> = {}, authOverrides:
       signature: "0xpaper-mode-opaque-signature",
       authorization: {
         from: PAYER,
-        to: "0x0bee61d45d42d7342d57ea7581d17581203447a8",
+        to: "0x250cf8852e5236dcaf5ee7f06d1e0f5800413866",
         value: "10000",
         // Paper mode validates the window against the fixed test clock.
         validAfter: Math.floor(Date.parse("2026-04-01T11:59:00.000Z") / 1000),
@@ -93,7 +93,7 @@ describe("canonical x402 client support", () => {
     expect(body.accepts[0].scheme).toBe("exact");
     expect(body.accepts[0].network).toBe("eip155:8453");
     expect(body.accepts[0].maxAmountRequired).toBe("10000");
-    expect(body.accepts[0].payTo).toBe("0x0bee61d45d42d7342d57ea7581d17581203447a8");
+    expect(body.accepts[0].payTo).toBe("0x250cf8852e5236dcaf5ee7f06d1e0f5800413866");
     // Our own requirement shape is still there for existing clients.
     expect(body.requirement.scheme).toBe("exactInEvm");
   });
@@ -174,7 +174,7 @@ describe("canonical x402 client support", () => {
           network: 8453,
           asset: "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
           maxAmountRequired: "10000",
-          payTo: "0x0bee61d45d42d7342d57ea7581d17581203447a8",
+          payTo: "0x250cf8852e5236dcaf5ee7f06d1e0f5800413866",
           maxTimeoutSeconds: 300,
           mimeType: "application/json",
         },
@@ -183,7 +183,7 @@ describe("canonical x402 client support", () => {
           scheme: "exactInEvm",
           payload: {
             from: PAYER,
-            to: "0x0bee61d45d42d7342d57ea7581d17581203447a8",
+            to: "0x250cf8852e5236dcaf5ee7f06d1e0f5800413866",
             value: "10000",
             nonce: "0x" + "ef".repeat(32),
             validAfter: "2026-04-01T11:59:00.000Z",

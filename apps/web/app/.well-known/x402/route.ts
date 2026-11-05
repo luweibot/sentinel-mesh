@@ -5,7 +5,7 @@
  * This is the same offer as /llms.txt in JSON, for agents that parse rather
  * than read. The price authority remains GET /api/v1/payments/catalog.
  */
-const RECEIVER = "0x0bee61d45d42d7342d57ea7581d17581203447a8";
+const RECEIVER = "0x250cf8852e5236dcaf5ee7f06d1e0f5800413866";
 const USDC_BASE = "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913";
 
 const SERVICES = [

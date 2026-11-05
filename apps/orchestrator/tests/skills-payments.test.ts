@@ -269,7 +269,7 @@ describe("x402 route gating (service catalog)", () => {
     expect(body.error).toBe("PAYMENT_REQUIRED");
     expect(body.serviceId).toBe("tokens.snapshot");
     expect(body.priceUsd).toBe("0.01");
-    expect(body.requirement.payTo).toBe("0x0bee61d45d42d7342d57ea7581d17581203447a8"); // our wallet, not the watched trader
+    expect(body.requirement.payTo).toBe("0x250cf8852e5236dcaf5ee7f06d1e0f5800413866"); // our wallet, not the watched trader
     expect(body.requirement.maxAmountRequired).toBe("10000"); // $0.01 in USDC atomic units
     expect(res.headers["x-payments-version"]).toBe("1");
   });
@@ -377,7 +377,7 @@ describe("x402 route gating (service catalog)", () => {
     const cat = await app.inject({ method: "GET", url: "/api/v1/payments/catalog" });
     expect(cat.statusCode).toBe(200);
     const body = cat.json() as { receiver: string; services: { serviceId: string; priceUsd: string }[] };
-    expect(body.receiver).toBe("0x0bee61d45d42d7342d57ea7581d17581203447a8");
+    expect(body.receiver).toBe("0x250cf8852e5236dcaf5ee7f06d1e0f5800413866");
     expect(body.services.map((s) => s.serviceId)).toEqual(
       expect.arrayContaining(["tokens.snapshot", "fees.snapshot", "signals.evaluate", "tasks.research", "workflows.research", "token.detail", "price.check", "risk.check", "whales.list"]),
     );

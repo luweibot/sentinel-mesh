@@ -12,7 +12,7 @@ import { X402_ASSET_BASE_USDC } from "../src/catalog.js";
 const NOW = new Date("2026-04-01T12:00:30.000Z");
 
 const payer = privateKeyToAccount(generatePrivateKey());
-const receiver = "0x0bee61d45d42d7342d57ea7581d17581203447a8"; // our project wallet
+const receiver = "0x250cf8852e5236dcaf5ee7f06d1e0f5800413866"; // our project wallet
 
 function eip3009Payload(nonce: string, overrides: Record<string, unknown> = {}) {
   return {

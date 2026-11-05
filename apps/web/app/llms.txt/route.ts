@@ -19,7 +19,7 @@ API base:      https://sentinel-mesh-orchestrator.onrender.com
 Free routes:   GET /health, GET /api/v1/payments/catalog (the price authority)
 Asset:         USDC on Base, 0x833589fcd6edb6e08f4c7c32d4f71b54bda02913, 6 decimals
 Network:       eip155:8453 (Base mainnet)
-Receiver:      0x0bee61d45d42d7342d57ea7581d17581203447a8
+Receiver:      0x250cf8852e5236dcaf5ee7f06d1e0f5800413866
 Scheme:        exact-in (EIP-3009 transferWithAuthorization)
 Machine copy:  /x402.json  (this same offer, as JSON)
 
